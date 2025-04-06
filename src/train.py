@@ -1,5 +1,6 @@
 import os
 import argparse
+import wandb
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils import ensure_dir, load_config, target_transform
+from utils import ensure_dir, load_config, target_transform, create_depth_comparison
 from modules import SimpleUNet
 from data import DepthDataset
 
@@ -27,7 +28,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         # Training phase
         model.train()
         train_loss = 0.0
-        
+
+        step = epoch * len(train_loader)
         for inputs, targets, _ in tqdm(train_loader, desc="Training"):
             inputs, targets = inputs.to(device), targets.to(device)
             
@@ -43,7 +45,44 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             optimizer.step()
             
             train_loss += loss.item() * inputs.size(0)
-        
+
+            # Step-level logging
+            if config["logging"]["log_every_k_steps"] > 0 and step % config["logging"]["log_every_k_steps"] == 0:
+                log_dict = {
+                    "Step/Train Loss": loss.item()
+                }
+
+                # Log comparisons
+                if config["logging"]["log_images"]:
+                    train_comparison = create_depth_comparison(model, train_log_rgb, train_log_depth, device)
+                    val_comparison = create_depth_comparison(model, val_log_rgb, val_log_depth, device)
+
+                    log_dict.update({
+                        "Step/Train Depth Comparison": wandb.Image(train_comparison),
+                        "Step/Validation Depth Comparison": wandb.Image(val_comparison),
+                    })
+
+                # Log validation loss
+                if config["logging"]["val_every_step_log"]:
+                    model.eval()
+                    step_val_loss = 0.0
+
+                    with torch.no_grad():
+                        for inputs_, targets_, _ in val_loader:
+                            inputs_, targets_ = inputs_.to(device), targets_.to(device)
+                            
+                            # Forward pass
+                            outputs_ = model(inputs_)
+                            loss_ = criterion(outputs_, targets_)
+
+                            step_val_loss += loss_.item() * inputs_.size(0)
+
+                    log_dict["Step/Validation Loss"] = step_val_loss / len(val_loader.dataset)
+                    model.train()
+
+                wandb.log(log_dict)
+
+            step += 1
         
         train_loss /= len(train_loader.dataset)
         train_losses.append(train_loss)
@@ -66,6 +105,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         val_losses.append(val_loss)
                 
         print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+
+        # Epoch-level logging
+        if config["logging"]["log_every_k_epochs"] > 0 and (epoch + 1) % config["logging"]["log_every_k_epochs"] == 0:
+            log_dict = {
+                "Epoch/Train Loss": train_loss,
+                "Epoch/Validation Loss": val_loss,
+            }
+
+            if config["logging"]["log_images"]:
+                # Log comparisons
+                train_comparison = create_depth_comparison(model, train_log_rgb, train_log_depth, device)
+                val_comparison = create_depth_comparison(model, val_log_rgb, val_log_depth, device)
+
+                log_dict.update({
+                    "Epoch/Train Depth Comparison": wandb.Image(train_comparison),
+                    "Epoch/Validation Depth Comparison": wandb.Image(val_comparison),
+                })
+
+            wandb.log(log_dict)
         
         # Save the best model
         if val_loss < best_val_loss:
@@ -266,10 +324,17 @@ if __name__ == "__main__":
     # Load config file
     config = load_config(args.config)
 
-    # Create output directories
-    results_dir = os.path.join(config["output_dir"], f"{config['run_name']}_results")
-    predictions_dir = os.path.join(config["output_dir"], f"{config['run_name']}_predictions")
+    # Define paths
+    train_data_dir = os.path.join(config["data_dir"], "train", "train")
+    test_data_dir = os.path.join(config["data_dir"], "test", "test")
 
+    train_list_file = os.path.join(config["data_dir"], "train_list.txt")
+    test_list_file = os.path.join(config["data_dir"], "test_list.txt")
+
+    results_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_results")
+    predictions_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_predictions")
+
+    # Create output directories
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
     
@@ -289,8 +354,8 @@ if __name__ == "__main__":
     
     # Create training dataset with ground truth
     train_full_dataset = DepthDataset(
-        data_dir=config["data"]["train_data_dir"],
-        list_file=config["data"]["train_list_file"], 
+        data_dir=train_data_dir,
+        list_file=train_list_file, 
         transform=train_transform,
         target_transform=target_transform,
         has_gt=True
@@ -298,14 +363,14 @@ if __name__ == "__main__":
     
     # Create test dataset without ground truth
     test_dataset = DepthDataset(
-        data_dir=config["data"]["test_data_dir"],
-        list_file=config["data"]["test_list_file"],
+        data_dir=test_data_dir,
+        list_file=test_list_file,
         transform=test_transform,
         has_gt=False  # Test set has no ground truth
     )
     
     # Split training dataset into train and validation
-    total_size = len(train_full_dataset)
+    total_size = len(train_full_dataset) 
     train_size = int(0.85 * total_size)   # 85% for training
     val_size = total_size - train_size    # 15% for validation
     
@@ -316,6 +381,10 @@ if __name__ == "__main__":
         train_full_dataset, [train_size, val_size]
     )
     
+    # Get images to be used as visualizations duringn logging
+    train_log_rgb, train_log_depth, _ = train_dataset[0]
+    val_log_rgb, val_log_depth, _ = val_dataset[0]
+
     # Create data loaders with memory optimizations
     train_loader = DataLoader(
         train_dataset, 
@@ -373,6 +442,13 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=config["train"]["learning_rate"], weight_decay=config["train"]["weight_decay"])
     
+    # Initialize Weights and Biases for logging
+    wandb.init(
+        project=config["logging"]["project_name"],
+        name=config['logging']["run_name"],
+        config=config,
+        mode="online" if config["logging"]["log"] else "disabled",
+    )
     
     # Train the model
     print("Starting training...")
@@ -381,6 +457,17 @@ if __name__ == "__main__":
     # Evaluate the model on validation set
     print("Evaluating model on validation set...")
     metrics = evaluate_model(model, val_loader, DEVICE, results_dir)
+
+    # Log metrics to Weights and Biases
+    wandb.log({
+        "Metrics/MAE": metrics['MAE'],
+        "Metrics/RMSE": metrics['RMSE'],
+        "Metrics/siRMSE": metrics['siRMSE'],
+        "Metrics/REL": metrics['REL'],
+        "Metrics/Delta1": metrics['Delta1'],
+        "Metrics/Delta2": metrics['Delta2'],
+        "Metrics/Delta3": metrics['Delta3']
+    })
     
     # Print metrics
     print("\nValidation Metrics:")

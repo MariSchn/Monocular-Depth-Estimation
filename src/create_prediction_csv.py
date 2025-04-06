@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     # Path definitions
     predictions_dir = os.path.join(config["output_dir"], 'predictions')
-    test_list_file = os.path.join(config["test_list_file"])
+    test_list_file = os.path.join(config["data_dir"], 'test_list.txt')
     output_csv = os.path.join(config["output_dir"], 'predictions.csv')
 
     # Process depth maps and save to CSV
