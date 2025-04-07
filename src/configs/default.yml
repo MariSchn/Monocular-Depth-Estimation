@@ -22,4 +22,5 @@ logging:
   log_every_k_epochs: 1     # How frequent to perform epoch-level logging
   log_every_k_steps: 100    # How frequent to perform step-level logging
   run_name: ""
+  entity: "MonocularDepthEstimation"       # Which entity/team to log to. There should be no need to change this
   project_name: "MonocularDepthEstimation" # Which project to log to. There should be no need to change this

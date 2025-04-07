@@ -444,6 +444,7 @@ if __name__ == "__main__":
     
     # Initialize Weights and Biases for logging
     wandb.init(
+        entity=config["logging"]["entity"],
         project=config["logging"]["project_name"],
         name=config['logging']["run_name"],
         config=config,
@@ -468,6 +469,8 @@ if __name__ == "__main__":
         "Metrics/Delta2": metrics['Delta2'],
         "Metrics/Delta3": metrics['Delta3']
     })
+
+    wandb.finish()
     
     # Print metrics
     print("\nValidation Metrics:")
