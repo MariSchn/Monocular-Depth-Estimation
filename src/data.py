@@ -16,10 +16,14 @@ class DepthDataset(Dataset):
         with open(list_file, 'r') as f:
             if has_gt:
                 self.file_pairs = [line.strip().split() for line in f]
+                # Filter out invalid entries (empty lines)
+                self.file_pairs = [pair for pair in self.file_pairs if pair]
             else:
                 # For test set without ground truth
                 self.file_list = [line.strip() for line in f]
-    
+                # Filter out invalid entries (empty lines)
+                self.file_list = [line for line in self.file_list if line]
+
     def __len__(self):
         return len(self.file_pairs if self.has_gt else self.file_list)
     

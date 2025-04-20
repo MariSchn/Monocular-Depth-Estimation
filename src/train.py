@@ -325,8 +325,8 @@ if __name__ == "__main__":
     config = load_config(args.config)
 
     # Define paths
-    train_data_dir = os.path.join(config["data_dir"], "train", "train")
-    test_data_dir = os.path.join(config["data_dir"], "test", "test")
+    train_data_dir = os.path.join(config["data_dir"], "train")
+    test_data_dir = os.path.join(config["data_dir"], "test")
 
     train_list_file = os.path.join(config["data_dir"], "train_list.txt")
     test_list_file = os.path.join(config["data_dir"], "test_list.txt")
@@ -443,6 +443,9 @@ if __name__ == "__main__":
     optimizer = optim.AdamW(model.parameters(), lr=config["train"]["learning_rate"], weight_decay=config["train"]["weight_decay"])
     
     # Initialize Weights and Biases for logging
+    config.update({
+        "num_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad)
+    })
     wandb.init(
         entity=config["logging"]["entity"],
         project=config["logging"]["project_name"],
