@@ -49,7 +49,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             # Step-level logging
             if config["logging"]["log_every_k_steps"] > 0 and step % config["logging"]["log_every_k_steps"] == 0:
                 log_dict = {
-                    "Step/Train Loss": loss.item()
+                    "Step/Train Loss": loss.item(),
+                    "Step/Step": step,
+                    "Step/Epoch": epoch
                 }
 
                 # Log comparisons
@@ -429,7 +431,7 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
-    model = SimpleUNet()
+    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"])
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
