@@ -9,6 +9,7 @@ train:
   batch_size: 8
   learning_rate: 0.0001
   weight_decay: 0.0001
+  gradient_regularizer_weight: 1
 
 model:
   hidden_channels: 32

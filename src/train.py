@@ -10,7 +10,7 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils import ensure_dir, load_config, target_transform, create_depth_comparison
+from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer
 from modules import SimpleUNet
 from data import DepthDataset
 
@@ -39,6 +39,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             # Forward pass
             outputs = model(inputs)
             loss = criterion(outputs, targets)
+
+            if config["train"]["gradient_regularizer_weight"] != 0:
+                grad_reg = gradient_regularizer(outputs)
+                print("loss: ", loss)
+                print("grad_reg: ", grad_reg)
+                loss += config["train"]["gradient_regularizer_weight"] * grad_reg
             
             # Backward pass and optimize
             loss.backward()
