@@ -83,15 +83,48 @@ def gradient_regularizer(depth: torch.Tensor) -> torch.Tensor:
         - W = width
         
     Args:
-        depth (torch.Tensor): Depth map tensor of shape (B, 1, H, W).
+        depth (torch.Tensor): Depth map tensor of shape (B, 1, H, W) or (1, H, W) or (H, W).
     Returns:
         torch.Tensor: Value of the gradient regularization term.
     """
-    dx, dy = image_gradients(depth)
+    if (depth.ndim == 3 and depth.shape[0] != 1) or (depth.ndim == 4 and depth.shape[1] != 1):
+        raise ValueError("Depth map should have just one channel.")
+
+    dx, dy = image_gradients(depth, convert_to_gray=True)
     grad_x = torch.abs(dx)
     grad_y = torch.abs(dy)
 
     return grad_x.mean() + grad_y.mean()
+    
+def gradient_loss(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the gradient loss between the predicted and ground truth depth maps.
+    The gradient loss is defined as the mean of the absolute differences of the gradients in both x and y directions.
+
+    Shape Variables:
+        - B = batch size
+        - H = height
+        - W = width
+
+    Args:
+        pred (torch.Tensor): Predicted depth map tensor of shape (B, 1, H, W) or (1, H, W) or (H, W).
+        gt (torch.Tensor): Ground truth depth map tensor of shape (B, 1, H, W) or (1, H, W) or (H, W).
+    Returns:
+        torch.Tensor: Value of the gradient loss.
+    """
+    if (pred.ndim == 3 and pred.shape[0] != 1) or (pred.ndim == 4 and pred.shape[1] != 1):
+        raise ValueError("Predicted depth map should have just one channel.")
+    
+    if (gt.ndim == 3 and gt.shape[0] != 1) or (gt.ndim == 4 and gt.shape[1] != 1):
+        raise ValueError("Ground truth depth map should have just one channel.")
+
+    dx_pred, dy_pred = image_gradients(pred)
+    dx_gt, dy_gt = image_gradients(gt)
+
+    grad_x_loss = F.l1_loss(dx_pred, dx_gt)
+    grad_y_loss = F.l1_loss(dy_pred, dy_gt)
+
+    return grad_x_loss + grad_y_loss
 
 def create_depth_comparison(model: torch.nn.Module, image: torch.Tensor, gt: torch.Tensor, device: str) -> np.ndarray:
     """
