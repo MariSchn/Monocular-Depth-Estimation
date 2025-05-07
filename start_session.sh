@@ -1,0 +1,1 @@
+srun --account cil --time=00:30:00 --gpus=1 --pty bash
