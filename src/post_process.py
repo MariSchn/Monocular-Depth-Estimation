@@ -9,36 +9,81 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import yaml
 
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet
 from data import DepthDataset
+from train import generate_test_predictions
 
 from guided_filter_pytorch.guided_filter import GuidedFilter
 
-class DepthPostProcessor:
-    def __init__(self, resize_to=None):
-        self.resize_to = resize_to  # (H, W) or None
+from typing import List, Callable, Any
 
+# PostProcessor base class, courtesy of Mr.GPT :)
+class PostProcessor():
+    def __init__(self, steps: List[Callable[[Any, Any], Any]] = None):
+        """
+        Initialize the post-processor with an optional list of steps.
+
+        Args:
+            steps (List[Callable]): List of callables that take data and return transformed data.
+        """
+        self.steps = steps or []
+
+    def add_step(self, step: Callable[[Any, Any], Any]):
+        """Add a single post-processing step."""
+        self.steps.append(step)
+
+    def __call__(self, model_output: Any, inputs: Any) -> Any:
+        """
+        Apply all configured post-processing steps to the input data.
+
+        Args:
+            model_output (Any): Input data to be post-processed.
+            inputs (Any): Corresponding original RGB image.
+
+        Returns:
+            Any: The processed output.
+        """
+        data = model_output
+        for step in self.steps:
+            data = step(data, inputs)
+        return data
+
+class ResizeStep:
+    def __call__(self, model_output, inputs):
+        # Resize to the same dimensions as the input.
+        resize_to = inputs.shape[-2:]
+        model_output = nn.functional.interpolate(
+            model_output, size=resize_to, mode='bilinear', align_corners=False
+        )
+        return model_output
+
+class GuidedFilteringStep:
+    def __init__(self, radius=3, epsilon=1e-3):
         # TODO: specify the r and eps parameters with the configuration
-        self.filter = GuidedFilter(3, 1e-3)
+        self.filter = GuidedFilter(radius, epsilon)
 
     def __call__(self, outputs, inputs):
-        # Resize if needed
-        if self.resize_to is not None:
-            out = nn.functional.interpolate(
-                outputs, size=self.resize_to, mode='bilinear', align_corners=False
-            )
-
         # Use the original RGB inputs as a guide to perform smoothing.
-        filtered = self.filter(out, inputs)
+        filtered = self.filter(outputs, inputs)
         # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
         filtered = filtered.mean(dim=1, keepdim=True)
 
         return filtered
 
+def load_post_processor_from_config(config) -> PostProcessor:
+    p = PostProcessor()
+    p.add_step(ResizeStep())
+    if "post_process" in config:
+        if "guided_filter" in config["post_process"]:
+            gfilter_conf = config["post_process"]["guided_filter"]
+            p.add_step(GuidedFilteringStep(gfilter_conf.get("r", 3), gfilter_conf.get("eps", 1e-3)))
 
-def evaluate_model_with_postprocess(model, val_loader, device, output_dir):
+    return p
+
+def evaluate_model_with_postprocess(model, post_processor, val_loader, device, output_dir):
     """Evaluate the model and compute metrics on validation set, with post-process pipeline."""
     model.eval()
     
@@ -55,57 +100,19 @@ def evaluate_model_with_postprocess(model, val_loader, device, output_dir):
     
     with torch.no_grad():
         for inputs, targets, filenames in tqdm(val_loader, desc="Evaluating"):
-            # Instantiate a post processor for the inputs.
-            post_process = DepthPostProcessor(resize_to=targets.shape[-2:])
-            
             inputs, targets = inputs.to(device), targets.to(device)
             batch_size = inputs.size(0)
             total_samples += batch_size
             
             if target_shape is None:
                 target_shape = targets.shape
-            
 
             # Forward pass
             outputs = model(inputs)
 
             # Perform post-processing.
-            processed_outputs = post_process(outputs, inputs)
+            outputs = post_processor(outputs, inputs)
 
-            i = 0
-            # Convert tensors to numpy arrays
-            input_np = inputs[i].cpu().permute(1, 2, 0).numpy()
-            output_np = outputs[i].cpu().squeeze().numpy()
-            processed_np = processed_outputs[i].cpu().squeeze().numpy()
-            # print("output.shape", output_np.shape, "processed.shape", processed_np.shape)
-            
-            # Normalize for visualization
-            input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
-            
-            # Create visualization
-            plt.figure(figsize=(15, 5))
-            
-            plt.subplot(1, 3, 1)
-            plt.imshow(input_np)
-            plt.title("RGB Input")
-            plt.axis('off')
-            
-            plt.subplot(1, 3, 2)
-            plt.imshow(output_np, cmap='plasma')
-            plt.title("Predicted Depth")
-            plt.axis('off')
-            
-            plt.subplot(1, 3, 3)
-            plt.imshow(processed_np, cmap='plasma')
-            plt.title("Processed Predicted Depth")
-            plt.axis('off')
-            
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f"processed_comp.png"))
-            plt.close()
-            
-            assert False
-            
             # Calculate metrics
             abs_diff = torch.abs(outputs - targets)
             mae += torch.sum(abs_diff).item()
@@ -226,10 +233,12 @@ if __name__ == "__main__":
     test_list_file = os.path.join(config["data_dir"], "test_list.txt")
 
     results_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_results")
+    eval_results_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_eval_results")
     predictions_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_predictions")
 
     # Create output directories
     ensure_dir(results_dir)
+    ensure_dir(eval_results_dir)
     ensure_dir(predictions_dir)
     
     # Define transforms
@@ -333,26 +342,31 @@ if __name__ == "__main__":
     # Load the best model from the results directory. This assumes you
     # already trained the model.
     model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
+
+    # Load the post processor based on the configuration.
+    post_processor = load_post_processor_from_config(config)
     
     # Evaluate the model on validation set
     print("Evaluating model on validation set with post-processing...")
-    metrics = evaluate_model_with_postprocess(model, val_loader, DEVICE, results_dir)
+    metrics = evaluate_model_with_postprocess(model, post_processor, val_loader, DEVICE, eval_results_dir)
 
     # Print metrics
     print("\nValidation Metrics:")
     for name, value in metrics.items():
         print(f"{name}: {value:.4f}")
 
-    assert False
-    
     # Save metrics to file
-    with open(os.path.join(results_dir, 'validation_metrics.txt'), 'w') as f:
+    with open(os.path.join(eval_results_dir, 'validation_metrics.txt'), 'w') as f:
         for name, value in metrics.items():
             f.write(f"{name}: {value:.4f}\n")
+
+    # Save the config to a file.
+    with open(os.path.join(eval_results_dir, 'saved_config.yaml'), 'w') as f:
+        yaml.dump(config, f)
     
     # Generate predictions for the test set
     print("Generating predictions for test set...")
     generate_test_predictions(model, test_loader, DEVICE, predictions_dir)
     
-    print(f"Results saved to {results_dir}")
+    print(f"Results saved to {eval_results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")

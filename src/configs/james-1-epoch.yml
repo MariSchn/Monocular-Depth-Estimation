@@ -15,6 +15,11 @@ model:
   hidden_channels: 32
   dilation: 1
 
+post_process:
+  guided_filter:
+    r: 3
+    eps: 0.001
+
 data:
   input_size: [426, 560] # Size of the input images (height, width). There should be no need to change this
   num_workers: 4         # How many workers to use for parallel data loading
