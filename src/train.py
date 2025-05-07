@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import matplotlib.pyplot as plt
+import tempfile
 from tqdm import tqdm
 
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
@@ -42,8 +43,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
             if config["train"]["gradient_regularizer_weight"] != 0:
                 grad_reg = gradient_regularizer(outputs)
-                print("loss: ", loss)
-                print("grad_reg: ", grad_reg)
                 loss += config["train"]["gradient_regularizer_weight"] * grad_reg
             
             # Backward pass and optimize
@@ -141,6 +140,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
     
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
+
+    # Save the best model
+    if config["logging"]["upload_to_wandb"]:
+        best_model_artifact = wandb.Artifact(name="best_model", type="model", description=f"Best model at epoch {best_epoch+1}")
+        best_model_artifact.add_file(os.path.join(output_dir, 'best_model.pth'), name="best_model.pth")
+        wandb.log_artifact(best_model_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
     
     # Load the best model
     model.load_state_dict(torch.load(os.path.join(output_dir, 'best_model.pth')))
@@ -161,108 +166,123 @@ def evaluate_model(model, val_loader, device, output_dir):
     
     total_samples = 0
     target_shape = None
-    
-    with torch.no_grad():
-        for inputs, targets, filenames in tqdm(val_loader, desc="Evaluating"):
-            inputs, targets = inputs.to(device), targets.to(device)
-            batch_size = inputs.size(0)
-            total_samples += batch_size
-            
-            if target_shape is None:
-                target_shape = targets.shape
-            
 
-            # Forward pass
-            outputs = model(inputs)
-            
-            # Resize outputs to match target dimensions
-            outputs = nn.functional.interpolate(
-                outputs,
-                size=targets.shape[-2:],  # Match height and width of targets
-                mode='bilinear',
-                align_corners=True
-            )
-            
-            # Calculate metrics
-            abs_diff = torch.abs(outputs - targets)
-            mae += torch.sum(abs_diff).item()
-            rmse += torch.sum(torch.pow(abs_diff, 2)).item()
-            rel += torch.sum(abs_diff / (targets + 1e-6)).item()
-            
-            # Calculate scale-invariant RMSE for each image in the batch
-            for i in range(batch_size):
-                # Convert tensors to numpy arrays
-                pred_np = outputs[i].cpu().squeeze().numpy()
-                target_np = targets[i].cpu().squeeze().numpy()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with torch.no_grad():
+            for inputs, targets, filenames in tqdm(val_loader, desc="Evaluating"):
+                inputs, targets = inputs.to(device), targets.to(device)
+                batch_size = inputs.size(0)
+                total_samples += batch_size
                 
-                EPSILON = 1e-6
+                if target_shape is None:
+                    target_shape = targets.shape
                 
-                valid_target = target_np > EPSILON
-                if not np.any(valid_target):
-                    continue
+                # Forward pass
+                outputs = model(inputs)
                 
-                target_valid = target_np[valid_target]
-                pred_valid = pred_np[valid_target]
-                
-                log_target = np.log(target_valid)
-                
-                pred_valid = np.where(pred_valid > EPSILON, pred_valid, EPSILON)
-                log_pred = np.log(pred_valid)
-                
-                # Calculate scale-invariant error
-                diff = log_pred - log_target
-                diff_mean = np.mean(diff)
-                
-                # Calculate RMSE for this image
-                sirmse += np.sqrt(np.mean((diff - diff_mean) ** 2))
-            
-            # Calculate thresholded accuracy
-            max_ratio = torch.max(outputs / (targets + 1e-6), targets / (outputs + 1e-6))
-            delta1 += torch.sum(max_ratio < 1.25).item()
-            delta2 += torch.sum(max_ratio < 1.25**2).item()
-            delta3 += torch.sum(max_ratio < 1.25**3).item()
-            
-            # Save some sample predictions
-            if total_samples <= 5 * batch_size:
-                for i in range(min(batch_size, 5)):
-                    idx = total_samples - batch_size + i
+                # Resize outputs to match target dimensions
+                outputs = nn.functional.interpolate(
+                    outputs,
+                    size=targets.shape[-2:],  # Match height and width of targets
+                    mode='bilinear',
+                    align_corners=True
+                )
+
+                # Save predictions into temp_dir
+                for i in range(batch_size):
+                    filename = filenames[i]
+                    depth_pred = outputs[i].cpu().squeeze().numpy()
                     
+                    # Save depth map prediction as numpy array
+                    np.save(os.path.join(temp_dir, f"{filename}"), depth_pred)
+                
+                # Calculate metrics
+                abs_diff = torch.abs(outputs - targets)
+                mae += torch.sum(abs_diff).item()
+                rmse += torch.sum(torch.pow(abs_diff, 2)).item()
+                rel += torch.sum(abs_diff / (targets + 1e-6)).item()
+                
+                # Calculate scale-invariant RMSE for each image in the batch
+                for i in range(batch_size):
                     # Convert tensors to numpy arrays
-                    input_np = inputs[i].cpu().permute(1, 2, 0).numpy()
+                    pred_np = outputs[i].cpu().squeeze().numpy()
                     target_np = targets[i].cpu().squeeze().numpy()
-                    output_np = outputs[i].cpu().squeeze().numpy()
                     
-                    # Normalize for visualization
-                    input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
+                    EPSILON = 1e-6
                     
-                    # Create visualization
-                    plt.figure(figsize=(15, 5))
+                    valid_target = target_np > EPSILON
+                    if not np.any(valid_target):
+                        continue
                     
-                    plt.subplot(1, 3, 1)
-                    plt.imshow(input_np)
-                    plt.title("RGB Input")
-                    plt.axis('off')
+                    target_valid = target_np[valid_target]
+                    pred_valid = pred_np[valid_target]
                     
-                    plt.subplot(1, 3, 2)
-                    plt.imshow(target_np, cmap='plasma')
-                    plt.title("Ground Truth Depth")
-                    plt.axis('off')
+                    log_target = np.log(target_valid)
                     
-                    plt.subplot(1, 3, 3)
-                    plt.imshow(output_np, cmap='plasma')
-                    plt.title("Predicted Depth")
-                    plt.axis('off')
+                    pred_valid = np.where(pred_valid > EPSILON, pred_valid, EPSILON)
+                    log_pred = np.log(pred_valid)
                     
-                    plt.tight_layout()
-                    plt.savefig(os.path.join(output_dir, f"sample_{idx}.png"))
-                    plt.close()
-            
-            # Free up memory
-            del inputs, targets, outputs, abs_diff, max_ratio
-            
-        # Clear CUDA cache
-        torch.cuda.empty_cache()
-    
+                    # Calculate scale-invariant error
+                    diff = log_pred - log_target
+                    diff_mean = np.mean(diff)
+                    
+                    # Calculate RMSE for this image
+                    sirmse += np.sqrt(np.mean((diff - diff_mean) ** 2))
+                
+                # Calculate thresholded accuracy
+                max_ratio = torch.max(outputs / (targets + 1e-6), targets / (outputs + 1e-6))
+                delta1 += torch.sum(max_ratio < 1.25).item()
+                delta2 += torch.sum(max_ratio < 1.25**2).item()
+                delta3 += torch.sum(max_ratio < 1.25**3).item()
+                
+                # Save some sample predictions
+                if total_samples <= 5 * batch_size:
+                    for i in range(min(batch_size, 5)):
+                        idx = total_samples - batch_size + i
+                        
+                        # Convert tensors to numpy arrays
+                        input_np = inputs[i].cpu().permute(1, 2, 0).numpy()
+                        target_np = targets[i].cpu().squeeze().numpy()
+                        output_np = outputs[i].cpu().squeeze().numpy()
+                        
+                        # Normalize for visualization
+                        input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
+                        
+                        # Create visualization
+                        plt.figure(figsize=(15, 5))
+                        
+                        plt.subplot(1, 3, 1)
+                        plt.imshow(input_np)
+                        plt.title("RGB Input")
+                        plt.axis('off')
+                        
+                        plt.subplot(1, 3, 2)
+                        plt.imshow(target_np, cmap='plasma')
+                        plt.title("Ground Truth Depth")
+                        plt.axis('off')
+                        
+                        plt.subplot(1, 3, 3)
+                        plt.imshow(output_np, cmap='plasma')
+                        plt.title("Predicted Depth")
+                        plt.axis('off')
+                        
+                        plt.tight_layout()
+                        plt.savefig(os.path.join(output_dir, f"sample_{idx}.png"))
+                        plt.close()
+                
+                # Free up memory
+                del inputs, targets, outputs, abs_diff, max_ratio
+                
+            # Clear CUDA cache
+            torch.cuda.empty_cache()
+        
+        # Upload validation images to Weights and Biases
+        if config["logging"]["upload_to_wandb"]:
+            val_artifact = wandb.Artifact(name=f"validation_images", type="predictions", description="Best model validation depth predictions")
+            val_artifact.add_dir(temp_dir)
+            wandb.log_artifact(val_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+            val_artifact.wait()
+
     # Calculate final metrics using stored target shape
     total_pixels = target_shape[1] * target_shape[2] * target_shape[3]  # channels * height * width
     mae /= total_samples * total_pixels
@@ -322,6 +342,13 @@ def generate_test_predictions(model, test_loader, device, output_dir):
         
         # Clear cache after test predictions
         torch.cuda.empty_cache()
+
+        # Upload test images to Weights and Biases
+        if config["logging"]["upload_to_wandb"]:
+            test_artifact = wandb.Artifact(name="test_images", type="predictions", description="Test depth predictions")
+            test_artifact.add_dir(output_dir)
+            wandb.log_artifact(test_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+            test_artifact.wait()
 
 if __name__ == "__main__":
     # Parse arguments
@@ -460,6 +487,7 @@ if __name__ == "__main__":
         name=config['logging']["run_name"],
         config=config,
         mode="online" if config["logging"]["log"] else "disabled",
+        save_code=True,
     )
     
     # Train the model
@@ -480,8 +508,6 @@ if __name__ == "__main__":
         "Metrics/Delta2": metrics['Delta2'],
         "Metrics/Delta3": metrics['Delta3']
     })
-
-    wandb.finish()
     
     # Print metrics
     print("\nValidation Metrics:")
@@ -499,3 +525,5 @@ if __name__ == "__main__":
     
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
+
+    wandb.finish()
