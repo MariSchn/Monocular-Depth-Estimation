@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from transformers import ResNetModel, ResNetConfig
 import timm
 
 
@@ -69,76 +70,44 @@ class SimpleUNet(nn.Module):
         return x
     
 class UNetWithResNet50Backbone(nn.Module):
-    def __init__(self, freeze_encoder=True):
-        super(UNetWithResNet50Backbone, self).__init__()
-        
-        # Encoder blocks
-        self.encoder = timm.create_model('resnet50', pretrained=True, features_only=True)
+    def __init__(self, hidden_channels=64, dilation=1):
+        super().__init__()
 
-        # Freeze encoder
-        if freeze_encoder:
-            for param in self.encoder.parameters():
-                param.requires_grad = False
-        
-        encoder_channels = self.encoder.feature_info.channels() 
+        config = ResNetConfig.from_pretrained("microsoft/resnet-50", output_hidden_states=True)
+        self.backbone = ResNetModel.from_pretrained("microsoft/resnet-50", config=config)
 
-        # Decoder blocks
-        self.dec4 = UNetBlock(encoder_channels[4], encoder_channels[3])
-        self.dec3 = UNetBlock(encoder_channels[3] + encoder_channels[3], encoder_channels[2])
-        self.dec2 = UNetBlock(encoder_channels[2] + encoder_channels[2], encoder_channels[1])
-        self.dec1 = UNetBlock(encoder_channels[1] + encoder_channels[1], encoder_channels[0])
-        self.dec0 = UNetBlock(encoder_channels[0] + 3, 64)
+        self.dec4 = UNetBlock(2048 + 1024, 1024, dilation)
+        self.dec3 = UNetBlock(1024 + 512, 512, dilation)
+        self.dec2 = UNetBlock(512 + 256, 256, dilation)
+        self.dec1 = UNetBlock(256 + 64, hidden_channels, dilation)
 
-        # Final layer
-        self.final = nn.Conv2d(64, 1, kernel_size=1)
-        
-        # Pooling and upsampling
-        self.pool = nn.MaxPool2d(2)
-        
+        self.final = nn.Conv2d(hidden_channels, 1, kernel_size=1)
+
     def forward(self, x):
-        # printf"x: {x.shape}")
+        outputs = self.backbone(pixel_values=x)
+        feats = outputs.hidden_states  
 
-        # Encoder
-        feats = self.encoder(x)
+        x = feats[4]  
 
-        x5 = feats[4]
-        x4 = feats[3]
-        x3 = feats[2]
-        x2 = feats[1]
-        x1 = feats[0]
-    
-        # printf"x1: {x1.shape}, x2: {x2.shape}, x3: {x3.shape}, x4: {x4.shape}, x5: {x5.shape}")
-    
-        d4 = nn.functional.interpolate(x5, size=x4.shape[2:], mode='bilinear', align_corners=True)
-        # print(f"d4 (after upsample x5): {d4.shape}")
-        d4 = self.dec4(d4)
-        # printf"d4 (after dec4): {d4.shape}")
-    
-        d3 = torch.cat([d4, x4], dim=1)
-        # printf"d3 (after concat with x4): {d3.shape}")
-        d3 = nn.functional.interpolate(d3, size=x3.shape[2:], mode='bilinear', align_corners=True)
-        # printf"d3 (after upsample): {d3.shape}")
-        d3 = self.dec3(d3)
-    
-        d2 = torch.cat([d3, x3], dim=1)
-        # printf"d2 (after concat with x3): {d2.shape}")
-        d2 = nn.functional.interpolate(d2, size=x2.shape[2:], mode='bilinear', align_corners=True)
-        # printf"d2 (after upsample): {d2.shape}")
-        d2 = self.dec2(d2)
-    
-        d1 = torch.cat([d2, x2], dim=1)
-        # printf"d1 (after concat with x2): {d1.shape}")
-        d1 = nn.functional.interpolate(d1, size=x1.shape[2:], mode='bilinear', align_corners=True)
-        # printf"d1 (after upsample): {d1.shape}")
-        d1 = self.dec1(d1)
-    
-        d0 = torch.cat([d1, x1], dim=1)
-        # printf"d0 (after concat with x1): {d0.shape}")
-        d0 = self.dec0(d0)
-        # printf"d0 (after dec0): {d0.shape}")
-    
-        out = self.final(d0)
-        # printf"out (final): {out.shape}")
-    
-        out = torch.sigmoid(out) * 10
-        return out
+        x = torch.nn.functional.interpolate(x, size=feats[3].shape[2:], mode='bilinear', align_corners=False)
+        x = torch.cat([x, feats[3]], dim=1)
+        x = self.dec4(x)
+
+        x = torch.nn.functional.interpolate(x, size=feats[2].shape[2:], mode='bilinear', align_corners=False)
+        x = torch.cat([x, feats[2]], dim=1)
+        x = self.dec3(x)
+
+        x = torch.nn.functional.interpolate(x, size=feats[1].shape[2:], mode='bilinear', align_corners=False)
+        x = torch.cat([x, feats[1]], dim=1)
+        x = self.dec2(x)
+
+        x = torch.nn.functional.interpolate(x, size=feats[0].shape[2:], mode='bilinear', align_corners=False)
+        x = torch.cat([x, feats[0]], dim=1)
+        x = self.dec1(x)
+
+        x = self.final(x)
+        x = torch.sigmoid(x) * 10  
+
+        x = torch.nn.functional.interpolate(x, size=(426, 560), mode='bilinear', align_corners=False)
+
+        return x
