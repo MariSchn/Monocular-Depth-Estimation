@@ -12,7 +12,7 @@ import tempfile
 from tqdm import tqdm
 
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import SimpleUNet
+from modules import SimpleUNet, UNetWithResNet50Backbone
 from data import DepthDataset
 
 
@@ -464,7 +464,10 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
-    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"])
+    #model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"])
+
+    model = UNetWithResNet50Backbone()
+
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
