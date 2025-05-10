@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import tempfile
 from tqdm import tqdm
 
-from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
+from utils import *
 from modules import SimpleUNet
 from data import DepthDataset
 
@@ -38,10 +38,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             optimizer.zero_grad()
             
             # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, targets) + gradient_loss(outputs, targets)
+            outputs, std = model(inputs)
 
-            if config["train"]["gradient_regularizer_weight"] != 0:
+            loss = criterion(outputs, targets)
+
+            if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"] > 0:
+                head_penalty = model.module.head_penalty() if hasattr(model, 'module') else model.head_penalty()
+                loss += config["train"]["head_penalty_weight"] * head_penalty
+            if config["train"]["gradient_loss_weight"] > 0:
+                grad_loss = gradient_loss(outputs, targets)
+                loss += config["train"]["gradient_loss_weight"] * grad_loss
+            if config["train"]["gradient_regularizer_weight"] > 0:
                 grad_reg = gradient_regularizer(outputs)
                 loss += config["train"]["gradient_regularizer_weight"] * grad_reg
             
@@ -79,7 +86,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                             inputs_, targets_ = inputs_.to(device), targets_.to(device)
                             
                             # Forward pass
-                            outputs_ = model(inputs_)
+                            outputs_, _ = model(inputs_)
                             loss_ = criterion(outputs_, targets_)
 
                             step_val_loss += loss_.item() * inputs_.size(0)
@@ -103,7 +110,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 inputs, targets = inputs.to(device), targets.to(device)
                 
                 # Forward pass
-                outputs = model(inputs)
+                outputs, std = model(inputs)
+
                 loss = criterion(outputs, targets)
                 
                 val_loss += loss.item() * inputs.size(0)
@@ -125,9 +133,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 train_comparison = create_depth_comparison(model, train_log_rgb, train_log_depth, device)
                 val_comparison = create_depth_comparison(model, val_log_rgb, val_log_depth, device)
 
+                uncertainty_visualization = create_uncertainty_visualization(model, train_log_rgb, val_log_rgb, device)
+
                 log_dict.update({
                     "Epoch/Train Depth Comparison": wandb.Image(train_comparison),
                     "Epoch/Validation Depth Comparison": wandb.Image(val_comparison),
+                    "Epoch/Uncertainty Visualization": wandb.Image(uncertainty_visualization),
                 })
 
             wandb.log(log_dict)
@@ -178,7 +189,7 @@ def evaluate_model(model, val_loader, device, output_dir):
                     target_shape = targets.shape
                 
                 # Forward pass
-                outputs = model(inputs)
+                outputs, std = model(inputs)
                 
                 # Resize outputs to match target dimensions
                 outputs = nn.functional.interpolate(
@@ -318,7 +329,7 @@ def generate_test_predictions(model, test_loader, device, output_dir):
             batch_size = inputs.size(0)
             
             # Forward pass
-            outputs = model(inputs)
+            outputs, std = model(inputs)
             
             # Resize outputs to match original input dimensions (426x560)
             outputs = nn.functional.interpolate(
@@ -464,7 +475,7 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
-    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"])
+    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")

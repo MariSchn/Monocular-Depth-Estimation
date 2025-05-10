@@ -9,15 +9,18 @@ train:
   batch_size: 8
   learning_rate: 0.01
   weight_decay: 0.01
-  gradient_regularizer_weight: 1
+  gradient_regularizer_weight: 0
+  gradient_loss_weight: 1
+  head_penalty_weight: 1
 
 model:
   hidden_channels: 32
   dilation: 1
+  num_heads: 8
 
 data:
   input_size: [426, 560] # Size of the input images (height, width). There should be no need to change this
-  num_workers: 4         # How many workers to use for parallel data loading
+  num_workers: 2         # How many workers to use for parallel data loading
   pin_memory: true
 
 logging:

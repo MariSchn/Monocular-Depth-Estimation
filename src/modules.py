@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class UNetBlock(nn.Module):
@@ -21,7 +22,7 @@ class UNetBlock(nn.Module):
         return x
     
 class SimpleUNet(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
         super(SimpleUNet, self).__init__()
         
         # Encoder blocks
@@ -34,12 +35,38 @@ class SimpleUNet(nn.Module):
         self.dec2 = UNetBlock(hidden_channels * 3, hidden_channels, dilation)
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
         
-        # Final layer
-        self.final = nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
-        
+        # Final heads that are combined for depth and uncertainty estimation
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(hidden_channels // 2, hidden_channels // 2, kernel_size=3, padding=1),
+                nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
+            ) for _ in range(num_heads)
+        ])
+
+        # Copy the initial state of the heads
+        self.initial_head_params = self.get_head_params().clone().detach()
+
         # Pooling and upsampling
         self.pool = nn.MaxPool2d(2)
-        
+
+    def get_head_params(self):
+        """
+        Returns the parameters of the heads as a flattened tensor.
+        This is useful for optimization purposes.
+        """
+        return torch.cat([
+                    torch.cat([
+                        p.view(-1) for p in head.parameters() if p.requires_grad
+                    ], dim=0) for head in self.heads
+                ], dim=0)
+
+    def head_penalty(self):
+        """
+        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        """
+        head_params = self.get_head_params()
+        return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
+            
     def forward(self, x):
         # Encoder
         enc1 = self.enc1(x)
@@ -60,9 +87,14 @@ class SimpleUNet(nn.Module):
         x = self.dec2(x)
         
         x = self.dec1(x)
-        x = self.final(x)
-        
+
+        # Run inference through all heads
+        x = torch.stack([head(x) for head in self.heads], dim=1)
+
+        std = x.std(dim=1)
+        x = x.mean(dim=1)
+
         # Output non-negative depth values
         x = torch.sigmoid(x)*10
         
-        return x
+        return x, std
