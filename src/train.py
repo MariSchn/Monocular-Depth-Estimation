@@ -12,14 +12,19 @@ import tempfile
 from tqdm import tqdm
 
 from utils import *
-from modules import SimpleUNet
+from modules import SimpleUNet, UncertaintyDepthAnything
 from data import DepthDataset
+# from create_prediction_csv import process_depth_maps
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, output_dir):
     """Train the model and save the best based on validation metrics"""
     best_val_loss = float('inf')
     best_epoch = 0
+    epoch_head_penalty = 0.0
+    epoch_grad_loss = 0.0
+    epoch_grad_reg = 0.0
+    epoch_mean_uncertainty = 0.0
     train_losses = []
     val_losses = []
         
@@ -39,18 +44,22 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             
             # Forward pass
             outputs, std = model(inputs)
+            epoch_mean_uncertainty += std.mean().item() * inputs.size(0)
 
             loss = criterion(outputs, targets)
 
             if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"] > 0:
                 head_penalty = model.module.head_penalty() if hasattr(model, 'module') else model.head_penalty()
                 loss += config["train"]["head_penalty_weight"] * head_penalty
+                epoch_head_penalty += head_penalty.item() * inputs.size(0)
             if config["train"]["gradient_loss_weight"] > 0:
                 grad_loss = gradient_loss(outputs, targets)
                 loss += config["train"]["gradient_loss_weight"] * grad_loss
+                epoch_grad_loss += grad_loss.item() * inputs.size(0)
             if config["train"]["gradient_regularizer_weight"] > 0:
                 grad_reg = gradient_regularizer(outputs)
                 loss += config["train"]["gradient_regularizer_weight"] * grad_reg
+                epoch_grad_reg += grad_reg.item() * inputs.size(0)
             
             # Backward pass and optimize
             loss.backward()
@@ -63,7 +72,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 log_dict = {
                     "Step/Train Loss": loss.item(),
                     "Step/Step": step,
-                    "Step/Epoch": epoch
+                    "Step/Epoch": epoch,
                 }
 
                 # Log comparisons
@@ -100,6 +109,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         
         train_loss /= len(train_loader.dataset)
         train_losses.append(train_loss)
+
+        epoch_head_penalty /= len(train_loader.dataset)
+        epoch_grad_loss /= len(train_loader.dataset)
+        epoch_grad_reg /= len(train_loader.dataset)
+        epoch_mean_uncertainty /= len(train_loader.dataset)
         
         # Validation phase
         model.eval()
@@ -126,6 +140,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             log_dict = {
                 "Epoch/Train Loss": train_loss,
                 "Epoch/Validation Loss": val_loss,
+                "Epoch/Train Head Penalty": epoch_head_penalty,
+                "Epoch/Train Gradient Loss": epoch_grad_loss,
+                "Epoch/Train Gradient Regularizer": epoch_grad_reg,
+                "Epoch/Train Mean Uncertainty": epoch_mean_uncertainty,
             }
 
             if config["logging"]["log_images"]:
@@ -385,15 +403,16 @@ if __name__ == "__main__":
     ensure_dir(predictions_dir)
     
     # Define transforms
+    input_size = (426, 560) if config["model"]["type"] == "u_net" else (392, 518)
     train_transform = transforms.Compose([
-        transforms.Resize(config["data"]["input_size"]),
+        transforms.Resize(input_size),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
     test_transform = transforms.Compose([
-        transforms.Resize(config["data"]["input_size"]),
+        transforms.Resize(input_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -475,7 +494,13 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
-    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
+    
+    if config["model"]["type"] == "u_net":
+        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
+    elif config["model"]["type"] == "depth_anything":
+        model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
+    else:
+        raise ValueError(f"Unknown model type: {config['model']['type']}")
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
@@ -536,5 +561,15 @@ if __name__ == "__main__":
     
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
+
+    # Process depth maps and save to CSV
+    # print("Processing depth maps and saving to CSV...")
+    # process_depth_maps(test_list_file, predictions_dir, os.path.join(predictions_dir, 'predictions.csv'))
+
+    # ! Wait for TAs to add pandas to the environment !
+    # csv_artifact = wandb.Artifact(name="predictions_csv", type="submission", description="Test depth predictions CSV")
+    # csv_artifact.add_file(os.path.join(predictions_dir, 'predictions.csv'), name="predictions.csv")
+    # wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+    # csv_artifact.wait()
 
     wandb.finish()

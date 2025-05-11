@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
+from transformers.models.depth_anything.modeling_depth_anything import DepthAnythingDepthEstimationHead
 
 class UNetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, dilation=1):
@@ -64,6 +66,9 @@ class SimpleUNet(nn.Module):
         """
         Calculates the penalty for the heads based on the distance from the initial parameters. 
         """
+        if len(self.heads) == 1:
+            return torch.tensor(0.0, device=self.initial_head_params.device)
+
         head_params = self.get_head_params()
         return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
             
@@ -97,4 +102,109 @@ class SimpleUNet(nn.Module):
         # Output non-negative depth values
         x = torch.sigmoid(x)*10
         
+        return x, std
+    
+class UncertaintyDepthAnything(nn.Module):
+    """
+    This class is a wrapper for the DepthAnything model that uses multiple heads to quantify the uncertainty of the depth estimation.
+    
+    The code was written with the Hugging Face library as a base, modifying the original DepthAnything model to add the uncertainty quantification.
+    The base code was taken from: https://github.com/huggingface/transformers/blob/main/src/transformers/models/depth_anything/modeling_depth_anything.py 
+    """
+    def __init__(
+            self, 
+            num_heads: int = 1, 
+            include_pretrained_head: bool = False,
+            model_path: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",
+            max_depth: float = 10.0    
+        ):
+        super().__init__()
+
+        # Load model and image processor
+        self.model = AutoModelForDepthEstimation.from_pretrained(model_path)
+
+        # Extract components
+        self.backbone = self.model.backbone
+        self.neck = self.model.neck
+
+        # Freeze backbone and neck
+        self.backbone.eval()
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        self.neck.eval()
+        for param in self.neck.parameters():
+            param.requires_grad = False
+        
+        # Setup custom heads
+        self.config = self.model.config 
+        if include_pretrained_head:
+            # Use the pretrained head if requested
+            self.heads = nn.ModuleList([self.model.head] + [DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads - 1)])
+        else:
+            self.heads = nn.ModuleList([DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads)])
+        for head in self.heads:
+            head.train()
+            head.max_depth = max_depth
+
+        # Copy the initial state of the heads
+        self.initial_head_params = self.get_head_params().clone().detach()
+
+    def get_head_params(self):
+        """
+        Returns the parameters of the heads as a flattened tensor.
+        This is useful for optimization purposes.
+        """
+        return torch.cat([
+                    torch.cat([
+                        p.view(-1) for p in head.parameters() if p.requires_grad
+                    ], dim=0) for head in self.heads
+                ], dim=0)
+    
+    def head_penalty(self):
+        """
+        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        """
+        if len(self.heads) == 1:
+            return torch.tensor(0.0, device=self.initial_head_params.device)
+
+        head_params = self.get_head_params()
+        return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
+
+    def forward(self, x, output_resolution=(426, 560)) -> torch.FloatTensor:
+        # Get hidden_states, unfortunately this can not be done as precomputation due to storage quota
+        with torch.no_grad():
+            # Forward pass through the backbone
+            outputs = self.backbone.forward_with_filtered_kwargs(x)
+            hidden_states = outputs.feature_maps
+
+            # Forward pass through the neck
+            _, _, height, width = x.shape
+            patch_size = self.config.patch_size
+            patch_height = height // patch_size
+            patch_width = width // patch_size
+
+            hidden_states = self.neck(hidden_states, patch_height, patch_width)
+
+        # Forward pass through the heads
+        predictions = []
+        for head in self.heads:
+            outputs = head(hidden_states, patch_height, patch_width)
+            outputs = outputs.unsqueeze(1)
+
+            # Interpolate the output to the desired resolution
+            outputs = F.interpolate(
+                outputs, 
+                size=output_resolution, 
+                mode='bilinear', 
+                align_corners=False
+            )
+
+            predictions.append(outputs)
+        predictions = torch.stack(predictions, dim=0)
+
+        # Calculate the mean and variance of the predictions
+        x = torch.mean(predictions, dim=0)
+        std = torch.std(predictions, dim=0)
+
         return x, std
