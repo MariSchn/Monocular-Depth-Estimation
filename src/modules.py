@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from transformers import ResNetModel, ResNetConfig
-import timm
+from transformers import AutoImageProcessor, AutoModel
+from PIL import Image
 
 
 class UNetBlock(nn.Module):
@@ -9,8 +9,10 @@ class UNetBlock(nn.Module):
         super(UNetBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
+
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        
         self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn3 = nn.BatchNorm2d(out_channels)
 
@@ -73,41 +75,49 @@ class UNetWithResNet50Backbone(nn.Module):
     def __init__(self, hidden_channels=64, dilation=1):
         super().__init__()
 
-        config = ResNetConfig.from_pretrained("microsoft/resnet-50", output_hidden_states=True)
-        self.backbone = ResNetModel.from_pretrained("microsoft/resnet-50", config=config)
+        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
+        self.backbone = AutoModel.from_pretrained('facebook/dinov2-small')
 
-        self.dec4 = UNetBlock(2048 + 1024, 1024, dilation)
-        self.dec3 = UNetBlock(1024 + 512, 512, dilation)
-        self.dec2 = UNetBlock(512 + 256, 256, dilation)
-        self.dec1 = UNetBlock(256 + 64, hidden_channels, dilation)
 
-        self.final = nn.Conv2d(hidden_channels, 1, kernel_size=1)
+        # Decoder blocks
+        self.dec3 = UNetBlock(384, 256, dilation)
+        self.dec2 = UNetBlock(256, 128, dilation)
+        self.dec1 = UNetBlock(128, 64, dilation)
+        
+        # Final layer
+        self.final = nn.Conv2d(64, 1, kernel_size=1)
 
     def forward(self, x):
-        outputs = self.backbone(pixel_values=x)
-        feats = outputs.hidden_states  
+        images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
+        inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
 
-        x = feats[4]  
+        outputs = self.backbone(**inputs)
 
-        x = torch.nn.functional.interpolate(x, size=feats[3].shape[2:], mode='bilinear', align_corners=False)
-        x = torch.cat([x, feats[3]], dim=1)
-        x = self.dec4(x)
+        tokens = outputs.last_hidden_state[:, 1:, :]
+        B, N, C = tokens.shape
+        H = W = int(N ** 0.5)
+        feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
 
-        x = torch.nn.functional.interpolate(x, size=feats[2].shape[2:], mode='bilinear', align_corners=False)
-        x = torch.cat([x, feats[2]], dim=1)
-        x = self.dec3(x)
+        print(feature_map.shape)
 
-        x = torch.nn.functional.interpolate(x, size=feats[1].shape[2:], mode='bilinear', align_corners=False)
-        x = torch.cat([x, feats[1]], dim=1)
-        x = self.dec2(x)
+        # Decoder with skip connections
+        out = nn.functional.interpolate(feature_map, scale_factor=4, mode='bilinear', align_corners=False)
+        # print(out.shape)
+        out = self.dec3(out)
+        # print(out.shape)
 
-        x = torch.nn.functional.interpolate(x, size=feats[0].shape[2:], mode='bilinear', align_corners=False)
-        x = torch.cat([x, feats[0]], dim=1)
-        x = self.dec1(x)
-
-        x = self.final(x)
-        x = torch.sigmoid(x) * 10  
-
-        x = torch.nn.functional.interpolate(x, size=(426, 560), mode='bilinear', align_corners=False)
-
-        return x
+        out = nn.functional.interpolate(out, scale_factor=4, mode='bilinear', align_corners=False)
+        # print(out.shape)
+        out = self.dec2(out)
+        # print(out.shape)
+        
+        out = self.dec1(out)
+        # print(out.shape)
+        out = self.final(out)
+        # print(out.shape)
+        
+        
+        out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
+        # print(out.shape)
+        out = torch.sigmoid(out) * 10
+        return out
