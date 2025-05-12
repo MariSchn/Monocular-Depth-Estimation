@@ -51,7 +51,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
             loss = criterion(outputs, targets)
 
-            if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"] > 0:
+            if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"][0] > 0:
                 head_penalty = model.module.head_penalty() if hasattr(model, 'module') else model.head_penalty()
                 head_penalty_weight = np.interp(step, [0, total_num_steps], [config["train"]["head_penalty_weight"][0], config["train"]["head_penalty_weight"][1]])
                 loss += head_penalty_weight * head_penalty

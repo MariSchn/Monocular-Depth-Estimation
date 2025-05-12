@@ -19,8 +19,9 @@ def compress_depth_values(depth_values):
 def process_depth_maps(test_list_file, predictions_dir, output_csv):
     # Read file list
     with open(test_list_file, 'r') as f:
-        file_pairs = [line.strip().split() for line in f]
-    
+        file_pairs = [line.strip().split()  for line in f]
+        file_pairs = [pair for pair in file_pairs if pair]  # Filter out invalid entries (empty lines)
+
     # Initialize lists to store data
     ids = []
     depths_list = []
