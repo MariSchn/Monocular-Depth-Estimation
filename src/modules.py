@@ -78,14 +78,17 @@ class UNetWithResNet50Backbone(nn.Module):
         self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
         self.backbone = AutoModel.from_pretrained('facebook/dinov2-small')
 
+        self.backbone.eval()
+        for param in self.backbone.parameters():
+            param.requires_grad = False
 
         # Decoder blocks
-        self.dec3 = UNetBlock(384, 256, dilation)
-        self.dec2 = UNetBlock(256, 128, dilation)
-        self.dec1 = UNetBlock(128, 64, dilation)
+        self.dec3 = UNetBlock(384, 128, dilation)
+        self.dec2 = UNetBlock(128, 64, dilation)
+        self.dec1 = UNetBlock(64, 32, dilation)
         
         # Final layer
-        self.final = nn.Conv2d(64, 1, kernel_size=1)
+        self.final = nn.Conv2d(32, 1, kernel_size=1)
 
     def forward(self, x):
         images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
@@ -97,10 +100,8 @@ class UNetWithResNet50Backbone(nn.Module):
         B, N, C = tokens.shape
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
+        # print(feature_map.shape)
 
-        print(feature_map.shape)
-
-        # Decoder with skip connections
         out = nn.functional.interpolate(feature_map, scale_factor=4, mode='bilinear', align_corners=False)
         # print(out.shape)
         out = self.dec3(out)
@@ -119,5 +120,7 @@ class UNetWithResNet50Backbone(nn.Module):
         
         out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
         # print(out.shape)
+
         out = torch.sigmoid(out) * 10
+
         return out
