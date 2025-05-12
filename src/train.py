@@ -14,7 +14,7 @@ from tqdm import tqdm
 from utils import *
 from modules import SimpleUNet, UncertaintyDepthAnything
 from data import DepthDataset
-# from create_prediction_csv import process_depth_maps
+from create_prediction_csv import process_depth_maps
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, output_dir):
@@ -308,7 +308,7 @@ def evaluate_model(model, val_loader, device, output_dir):
             torch.cuda.empty_cache()
         
         # Upload validation images to Weights and Biases
-        if config["logging"]["upload_to_wandb"]:
+        if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             val_artifact = wandb.Artifact(name=f"validation_images", type="predictions", description="Best model validation depth predictions")
             val_artifact.add_dir(temp_dir)
             wandb.log_artifact(val_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
@@ -375,7 +375,7 @@ def generate_test_predictions(model, test_loader, device, output_dir):
         torch.cuda.empty_cache()
 
         # Upload test images to Weights and Biases
-        if config["logging"]["upload_to_wandb"]:
+        if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             test_artifact = wandb.Artifact(name="test_images", type="predictions", description="Test depth predictions")
             test_artifact.add_dir(output_dir)
             wandb.log_artifact(test_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
@@ -565,13 +565,13 @@ if __name__ == "__main__":
     print(f"All test depth map predictions saved to {predictions_dir}")
 
     # Process depth maps and save to CSV
-    # print("Processing depth maps and saving to CSV...")
-    # process_depth_maps(test_list_file, predictions_dir, os.path.join(predictions_dir, 'predictions.csv'))
+    print("Processing depth maps and saving to CSV...")
+    process_depth_maps(test_list_file, predictions_dir, os.path.join(predictions_dir, 'predictions.csv'))
 
-    # ! Wait for TAs to add pandas to the environment !
-    # csv_artifact = wandb.Artifact(name="predictions_csv", type="submission", description="Test depth predictions CSV")
-    # csv_artifact.add_file(os.path.join(predictions_dir, 'predictions.csv'), name="predictions.csv")
-    # wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
-    # csv_artifact.wait()
+    if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
+        csv_artifact = wandb.Artifact(name="predictions_csv", type="submission", description="Test depth predictions CSV")
+        csv_artifact.add_file(os.path.join(predictions_dir, 'predictions.csv'), name="predictions.csv")
+        wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+        csv_artifact.wait()
 
     wandb.finish()
