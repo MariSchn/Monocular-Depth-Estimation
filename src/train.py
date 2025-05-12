@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import tempfile
 from tqdm import tqdm
 
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
+
 from utils import *
 from modules import SimpleUNet, UncertaintyDepthAnything
 from data import DepthDataset
@@ -405,19 +407,23 @@ if __name__ == "__main__":
     ensure_dir(predictions_dir)
     
     # Define transforms
-    input_size = (426, 560) if config["model"]["type"] == "u_net" else (392, 518)
-    train_transform = transforms.Compose([
-        transforms.Resize(input_size),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    test_transform = transforms.Compose([
-        transforms.Resize(input_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    if config["model"]["type"] == "u_net":
+        train_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        
+        test_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    elif config["model"]["type"] == "depth_anything":
+        train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+        test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+
     
     # Create training dataset with ground truth
     train_full_dataset = DepthDataset(

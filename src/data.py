@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
+from transformers.models.dpt.image_processing_dpt import DPTImageProcessor
 
 
 class DepthDataset(Dataset):
@@ -42,6 +43,8 @@ class DepthDataset(Dataset):
             # Apply transformations
             if self.transform:
                 rgb = self.transform(rgb)
+            if isinstance(self.transform, DPTImageProcessor):
+                rgb = rgb.pixel_values[0]
             
             if self.target_transform:
                 depth = self.target_transform(depth)
@@ -60,5 +63,7 @@ class DepthDataset(Dataset):
             # Apply transformations
             if self.transform:
                 rgb = self.transform(rgb)
+            if isinstance(self.transform, DPTImageProcessor):
+                rgb = rgb.pixel_values[0]
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
