@@ -28,6 +28,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     train_losses = []
     val_losses = []
         
+    total_num_steps = num_epochs * len(train_loader)
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         
@@ -50,7 +51,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
             if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"] > 0:
                 head_penalty = model.module.head_penalty() if hasattr(model, 'module') else model.head_penalty()
-                loss += config["train"]["head_penalty_weight"] * head_penalty
+                head_penalty_weight = np.interp(step, [0, total_num_steps], [config["train"]["head_penalty_weight"][0], config["train"]["head_penalty_weight"][1]])
+                loss += head_penalty_weight * head_penalty
                 epoch_head_penalty += head_penalty.item() * inputs.size(0)
             if config["train"]["gradient_loss_weight"] > 0:
                 grad_loss = gradient_loss(outputs, targets)

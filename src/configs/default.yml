@@ -11,7 +11,7 @@ train:
   weight_decay: 0.001
   gradient_regularizer_weight: 0
   gradient_loss_weight: 1
-  head_penalty_weight: 0.5
+  head_penalty_weight: [1, 0]  # Weight is scheduled from first value to second value over the course of training
 
 model:
   type: "u_net"  # The type of model to use. ["u_net", "depth_anything"]

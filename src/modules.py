@@ -141,11 +141,17 @@ class UncertaintyDepthAnything(nn.Module):
         if include_pretrained_head:
             # Use the pretrained head if requested
             self.heads = nn.ModuleList([self.model.head] + [DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads - 1)])
+            for i, head in enumerate(self.heads):
+                head.train()
+
+                # Keep the pretrained head at the max_depth it was trained on
+                if i != 0:
+                    head.max_depth = max_depth
         else:
             self.heads = nn.ModuleList([DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads)])
-        for head in self.heads:
-            head.train()
-            head.max_depth = max_depth
+            for head in self.heads:
+                head.train()
+                head.max_depth = max_depth
 
         # Copy the initial state of the heads
         self.initial_head_params = self.get_head_params().clone().detach()
