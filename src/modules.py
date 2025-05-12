@@ -94,7 +94,8 @@ class UNetWithResNet50Backbone(nn.Module):
         images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
         inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
 
-        outputs = self.backbone(**inputs)
+        with torch.no_grad():
+            outputs = self.backbone(**inputs)
 
         tokens = outputs.last_hidden_state[:, 1:, :]
         B, N, C = tokens.shape
