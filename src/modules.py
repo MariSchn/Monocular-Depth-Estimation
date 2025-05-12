@@ -34,8 +34,12 @@ class SimpleUNet(nn.Module):
         self.enc3 = UNetBlock(hidden_channels * 2, hidden_channels * 4, dilation)
         
         # Decoder blocks
+        self.upsample1 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 4, kernel_size=4, stride=2, padding=1)
         self.dec3 = UNetBlock(hidden_channels * 6, hidden_channels * 2, dilation)
+
+        self.upsample2 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels * 2, kernel_size=4, stride=2, padding=1)
         self.dec2 = UNetBlock(hidden_channels * 3, hidden_channels, dilation)
+
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
         
         # Final layer
@@ -55,10 +59,12 @@ class SimpleUNet(nn.Module):
         x = self.enc3(x)
         
         # Decoder with skip connections
+        x = self.upsample1(x)
         x = nn.functional.interpolate(x, size=enc2.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc2], dim=1)
         x = self.dec3(x)
 
+        x = self.upsample2(x)
         x = nn.functional.interpolate(x, size=enc1.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc1], dim=1)
         x = self.dec2(x)
@@ -67,7 +73,7 @@ class SimpleUNet(nn.Module):
         x = self.final(x)
         
         # Output non-negative depth values
-        x = torch.sigmoid(x)*10
+        x = torch.sigmoid(x) * 10
         
         return x
     
@@ -85,8 +91,10 @@ class UNetWithResNet50Backbone(nn.Module):
         # Decoder blocks
         self.dec3 = UNetBlock(384, 128, dilation)
         self.upsample = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1)
+
         self.dec2 = UNetBlock(128, 128, dilation)
         self.upsample2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+
         self.dec1 = UNetBlock(64, 64, dilation)
         self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
         
@@ -105,6 +113,7 @@ class UNetWithResNet50Backbone(nn.Module):
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
 
+        # resize feature map to fit original aspect ratio
         out = nn.functional.interpolate(feature_map, size=(54,70), mode='bilinear', align_corners=False)
 
         out = self.dec3(out)
@@ -118,6 +127,7 @@ class UNetWithResNet50Backbone(nn.Module):
 
         out = self.final(out)
         
+        # resize to original image size
         out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
 
         out = torch.sigmoid(out) * 10
