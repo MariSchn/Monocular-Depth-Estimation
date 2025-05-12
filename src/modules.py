@@ -84,8 +84,11 @@ class UNetWithResNet50Backbone(nn.Module):
 
         # Decoder blocks
         self.dec3 = UNetBlock(384, 128, dilation)
-        self.dec2 = UNetBlock(128, 64, dilation)
-        self.dec1 = UNetBlock(64, 32, dilation)
+        self.upsample = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1)
+        self.dec2 = UNetBlock(128, 128, dilation)
+        self.upsample2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        self.dec1 = UNetBlock(64, 64, dilation)
+        self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
         
         # Final layer
         self.final = nn.Conv2d(32, 1, kernel_size=1)
@@ -101,26 +104,21 @@ class UNetWithResNet50Backbone(nn.Module):
         B, N, C = tokens.shape
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
-        # print(feature_map.shape)
 
-        out = nn.functional.interpolate(feature_map, scale_factor=4, mode='bilinear', align_corners=False)
-        # print(out.shape)
+        out = nn.functional.interpolate(feature_map, size=(54,70), mode='bilinear', align_corners=False)
+
         out = self.dec3(out)
-        # print(out.shape)
+        out = self.upsample(out)
 
-        out = nn.functional.interpolate(out, scale_factor=4, mode='bilinear', align_corners=False)
-        # print(out.shape)
         out = self.dec2(out)
-        # print(out.shape)
-        
+        out = self.upsample2(out)
+
         out = self.dec1(out)
-        # print(out.shape)
+        out = self.upsample3(out)
+
         out = self.final(out)
-        # print(out.shape)
-        
         
         out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
-        # print(out.shape)
 
         out = torch.sigmoid(out) * 10
 
