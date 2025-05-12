@@ -11,18 +11,26 @@ import matplotlib.pyplot as plt
 import tempfile
 from tqdm import tqdm
 
-from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import SimpleUNet
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
+
+from utils import *
+from modules import SimpleUNet, UncertaintyDepthAnything
 from data import DepthDataset
+from create_prediction_csv import process_depth_maps
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, output_dir):
     """Train the model and save the best based on validation metrics"""
     best_val_loss = float('inf')
     best_epoch = 0
+    epoch_head_penalty = 0.0
+    epoch_grad_loss = 0.0
+    epoch_grad_reg = 0.0
+    epoch_mean_uncertainty = 0.0
     train_losses = []
     val_losses = []
         
+    total_num_steps = num_epochs * len(train_loader)
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         
@@ -38,12 +46,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             optimizer.zero_grad()
             
             # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, targets) + gradient_loss(outputs, targets)
+            outputs, std = model(inputs)
+            epoch_mean_uncertainty += std.mean().item() * inputs.size(0)
 
-            if config["train"]["gradient_regularizer_weight"] != 0:
+            loss = criterion(outputs, targets)
+
+            if config["model"]["num_heads"] > 1 and config["train"]["head_penalty_weight"] > 0:
+                head_penalty = model.module.head_penalty() if hasattr(model, 'module') else model.head_penalty()
+                head_penalty_weight = np.interp(step, [0, total_num_steps], [config["train"]["head_penalty_weight"][0], config["train"]["head_penalty_weight"][1]])
+                loss += head_penalty_weight * head_penalty
+                epoch_head_penalty += head_penalty.item() * inputs.size(0)
+            if config["train"]["gradient_loss_weight"] > 0:
+                grad_loss = gradient_loss(outputs, targets)
+                loss += config["train"]["gradient_loss_weight"] * grad_loss
+                epoch_grad_loss += grad_loss.item() * inputs.size(0)
+            if config["train"]["gradient_regularizer_weight"] > 0:
                 grad_reg = gradient_regularizer(outputs)
                 loss += config["train"]["gradient_regularizer_weight"] * grad_reg
+                epoch_grad_reg += grad_reg.item() * inputs.size(0)
             
             # Backward pass and optimize
             loss.backward()
@@ -56,7 +76,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 log_dict = {
                     "Step/Train Loss": loss.item(),
                     "Step/Step": step,
-                    "Step/Epoch": epoch
+                    "Step/Epoch": epoch,
                 }
 
                 # Log comparisons
@@ -79,7 +99,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                             inputs_, targets_ = inputs_.to(device), targets_.to(device)
                             
                             # Forward pass
-                            outputs_ = model(inputs_)
+                            outputs_, _ = model(inputs_)
                             loss_ = criterion(outputs_, targets_)
 
                             step_val_loss += loss_.item() * inputs_.size(0)
@@ -93,6 +113,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         
         train_loss /= len(train_loader.dataset)
         train_losses.append(train_loss)
+
+        epoch_head_penalty /= len(train_loader.dataset)
+        epoch_grad_loss /= len(train_loader.dataset)
+        epoch_grad_reg /= len(train_loader.dataset)
+        epoch_mean_uncertainty /= len(train_loader.dataset)
         
         # Validation phase
         model.eval()
@@ -103,7 +128,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 inputs, targets = inputs.to(device), targets.to(device)
                 
                 # Forward pass
-                outputs = model(inputs)
+                outputs, std = model(inputs)
+
                 loss = criterion(outputs, targets)
                 
                 val_loss += loss.item() * inputs.size(0)
@@ -118,6 +144,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             log_dict = {
                 "Epoch/Train Loss": train_loss,
                 "Epoch/Validation Loss": val_loss,
+                "Epoch/Train Head Penalty": epoch_head_penalty,
+                "Epoch/Train Gradient Loss": epoch_grad_loss,
+                "Epoch/Train Gradient Regularizer": epoch_grad_reg,
+                "Epoch/Train Mean Uncertainty": epoch_mean_uncertainty,
             }
 
             if config["logging"]["log_images"]:
@@ -125,9 +155,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 train_comparison = create_depth_comparison(model, train_log_rgb, train_log_depth, device)
                 val_comparison = create_depth_comparison(model, val_log_rgb, val_log_depth, device)
 
+                uncertainty_visualization = create_uncertainty_visualization(model, train_log_rgb, val_log_rgb, device)
+
                 log_dict.update({
                     "Epoch/Train Depth Comparison": wandb.Image(train_comparison),
                     "Epoch/Validation Depth Comparison": wandb.Image(val_comparison),
+                    "Epoch/Uncertainty Visualization": wandb.Image(uncertainty_visualization),
                 })
 
             wandb.log(log_dict)
@@ -178,7 +211,7 @@ def evaluate_model(model, val_loader, device, output_dir):
                     target_shape = targets.shape
                 
                 # Forward pass
-                outputs = model(inputs)
+                outputs, std = model(inputs)
                 
                 # Resize outputs to match target dimensions
                 outputs = nn.functional.interpolate(
@@ -277,7 +310,7 @@ def evaluate_model(model, val_loader, device, output_dir):
             torch.cuda.empty_cache()
         
         # Upload validation images to Weights and Biases
-        if config["logging"]["upload_to_wandb"]:
+        if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             val_artifact = wandb.Artifact(name=f"validation_images", type="predictions", description="Best model validation depth predictions")
             val_artifact.add_dir(temp_dir)
             wandb.log_artifact(val_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
@@ -318,7 +351,7 @@ def generate_test_predictions(model, test_loader, device, output_dir):
             batch_size = inputs.size(0)
             
             # Forward pass
-            outputs = model(inputs)
+            outputs, std = model(inputs)
             
             # Resize outputs to match original input dimensions (426x560)
             outputs = nn.functional.interpolate(
@@ -344,7 +377,7 @@ def generate_test_predictions(model, test_loader, device, output_dir):
         torch.cuda.empty_cache()
 
         # Upload test images to Weights and Biases
-        if config["logging"]["upload_to_wandb"]:
+        if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             test_artifact = wandb.Artifact(name="test_images", type="predictions", description="Test depth predictions")
             test_artifact.add_dir(output_dir)
             wandb.log_artifact(test_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
@@ -374,18 +407,23 @@ if __name__ == "__main__":
     ensure_dir(predictions_dir)
     
     # Define transforms
-    train_transform = transforms.Compose([
-        transforms.Resize(config["data"]["input_size"]),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    test_transform = transforms.Compose([
-        transforms.Resize(config["data"]["input_size"]),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    if config["model"]["type"] == "u_net":
+        train_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        
+        test_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    elif config["model"]["type"] == "depth_anything":
+        train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+        test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+
     
     # Create training dataset with ground truth
     train_full_dataset = DepthDataset(
@@ -464,7 +502,13 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
-    model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"])
+    
+    if config["model"]["type"] == "u_net":
+        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
+    elif config["model"]["type"] == "depth_anything":
+        model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
+    else:
+        raise ValueError(f"Unknown model type: {config['model']['type']}")
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
@@ -525,5 +569,15 @@ if __name__ == "__main__":
     
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
+
+    # Process depth maps and save to CSV
+    print("Processing depth maps and saving to CSV...")
+    process_depth_maps(test_list_file, predictions_dir, os.path.join(predictions_dir, 'predictions.csv'))
+
+    if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
+        csv_artifact = wandb.Artifact(name="predictions_csv", type="submission", description="Test depth predictions CSV")
+        csv_artifact.add_file(os.path.join(predictions_dir, 'predictions.csv'), name="predictions.csv")
+        wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+        csv_artifact.wait()
 
     wandb.finish()
