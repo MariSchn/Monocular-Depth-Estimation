@@ -16,11 +16,12 @@ def compress_depth_values(depth_values):
     # Encode as base64 for safe CSV storage
     return base64.b64encode(compressed).decode('utf-8')
 
-def process_depth_maps():
+def process_depth_maps(test_list_file, predictions_dir, output_csv):
     # Read file list
     with open(test_list_file, 'r') as f:
-        file_pairs = [line.strip().split() for line in f]
-    
+        file_pairs = [line.strip().split()  for line in f]
+        file_pairs = [pair for pair in file_pairs if pair]  # Filter out invalid entries (empty lines)
+
     # Initialize lists to store data
     ids = []
     depths_list = []

@@ -151,7 +151,7 @@ def create_depth_comparison(model: torch.nn.Module, image: torch.Tensor, gt: tor
 
     with torch.no_grad():
         # Forward pass through the model
-        pred = model(image)
+        pred, _ = model(image)
 
     pred = nn.functional.interpolate(
                 pred,
@@ -177,6 +177,68 @@ def create_depth_comparison(model: torch.nn.Module, image: torch.Tensor, gt: tor
     axs[1].imshow(gt, cmap='plasma', vmin=min_depth, vmax=max_depth)
     axs[1].set_title('Ground Truth Depth')
     axs[1].axis('off')
+
+    # Render the figure into a numpy array
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buffer = fig.canvas.tostring_argb()
+    image = np.frombuffer(buffer, dtype=np.uint8)
+    image.shape = (h, w, 4) 
+    image = image[:, :, 1:4]
+
+    plt.close(fig)
+
+    return image
+
+def create_uncertainty_visualization(model: torch.nn.Module, train_image: torch.Tensor, val_image: torch.Tensor, device: str) -> np.ndarray:
+    """
+    Creates a comparison figure which visualizes the model's uncertainty for both training and validation images.
+
+    Shape Variables:
+        - B = batch size
+        - C = number of channels
+        - H = height
+        - W = width
+
+    Args:
+        model (torch.nn.Module): The depth estimation model to be used.
+        train_image (torch.Tensor): Input image tensor from train set of shape (B, C, H, W).
+        val_image (torch.Tensor): Input image tensor from validation set of shape (B, C, H, W).
+        device (str): Device to run the model on ('cpu' or 'cuda').
+    Returns:
+        np.ndarray: Rendered image of the comparison figure.
+    """
+    model.eval()
+
+    if train_image.ndim == 3:
+        train_image = train_image.unsqueeze(0).to(device)
+    if val_image.ndim == 3:
+        val_image = val_image.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        # Forward pass through the model
+        _, train_uncertainty = model(train_image)
+        _, val_uncertainty = model(val_image)
+
+    # Convert tensors to numpy arrays for visualization
+    train_uncertainty = train_uncertainty.squeeze().cpu().numpy()
+    val_uncertainty = val_uncertainty.squeeze().cpu().numpy()
+
+    min_uncertainty = min(train_uncertainty.min(), val_uncertainty.min())
+    max_uncertainty = max(train_uncertainty.max(), val_uncertainty.max())
+
+    # Create the figure
+    fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+    im0 = axs[0].imshow(train_uncertainty, cmap='viridis', vmin=min_uncertainty, vmax=max_uncertainty)
+    axs[0].set_title('Train Uncertainty')
+    axs[0].axis('off')
+    fig.colorbar(im0, ax=axs[0], fraction=0.046, pad=0.04)
+
+    im1 = axs[1].imshow(val_uncertainty, cmap='viridis', vmin=min_uncertainty, vmax=max_uncertainty)
+    axs[1].set_title('Validation Uncertainty')
+    axs[1].axis('off')
+    fig.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
 
     # Render the figure into a numpy array
     fig.canvas.draw()
