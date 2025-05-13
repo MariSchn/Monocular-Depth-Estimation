@@ -230,8 +230,8 @@ class UncertaintyDepthAnything(nn.Module):
 
         return x, std
     
-class UNetWithResNet50Backbone(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1):
+class UNetWithDinoV2Backbone(nn.Module):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
         super().__init__()
 
         self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
@@ -251,8 +251,41 @@ class UNetWithResNet50Backbone(nn.Module):
         self.dec1 = UNetBlock(64, 64, dilation)
         self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
         
-        # Final layer
-        self.final = nn.Conv2d(32, 1, kernel_size=1)
+        # Final heads that are combined for depth and uncertainty estimation
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(32, 32, kernel_size=3, padding=1),
+                nn.Conv2d(32, 1, kernel_size=1)
+            ) for _ in range(num_heads)
+        ])
+
+        # Copy the initial state of the heads
+        self.initial_head_params = self.get_head_params().clone().detach()
+
+        # Pooling and upsampling
+        self.pool = nn.MaxPool2d(2)
+
+    def get_head_params(self):
+        """
+        Returns the parameters of the heads as a flattened tensor.
+        This is useful for optimization purposes.
+        """
+        return torch.cat([
+                    torch.cat([
+                        p.view(-1) for p in head.parameters() if p.requires_grad
+                    ], dim=0) for head in self.heads
+                ], dim=0)
+
+    def head_penalty(self):
+        """
+        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        """
+        if len(self.heads) == 1:
+            return torch.tensor(0.0, device=self.initial_head_params.device)
+
+        head_params = self.get_head_params()
+        return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
+
 
     def forward(self, x):
         images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
@@ -278,11 +311,16 @@ class UNetWithResNet50Backbone(nn.Module):
         out = self.dec1(out)
         out = self.upsample3(out)
 
-        out = self.final(out)
-        
         # resize to original image size
         out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
 
-        out = torch.sigmoid(out) * 10
+        # Run inference through all heads
+        out = torch.stack([head(out) for head in self.heads], dim=1)
 
-        return out
+        std = out.std(dim=1)
+        out = out.mean(dim=1)
+
+        # Output non-negative depth values
+        out = torch.sigmoid(out) * 10
+        
+        return out, std
