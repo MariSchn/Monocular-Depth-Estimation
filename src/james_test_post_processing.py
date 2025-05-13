@@ -10,16 +10,20 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yaml
+from transformers import AutoImageProcessor
+import torchvision.transforms as T
 
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
-from post_process import PostProcessor
+from post_process import PostProcessor, load_post_processor_from_config
+from guided_filter_pytorch.guided_filter import GuidedFilter
 
-
-def evaluate_preds_with_post_processing(post_processor, val_loader, device, output_dir):
+def evaluate_model_with_postprocess(model, post_processor, val_loader, device, output_dir):
     """Evaluate the model and compute metrics on validation set, with post-process pipeline."""
+    model.eval()
+
     mae = 0.0
     rmse = 0.0
     rel = 0.0
@@ -41,10 +45,28 @@ def evaluate_preds_with_post_processing(post_processor, val_loader, device, outp
                 target_shape = targets.shape
 
             # Forward pass
-            # outputs = model(inputs)
+            outputs, std = model(inputs)
 
             # Perform post-processing.
-            outputs = post_processor(outputs, inputs)
+            # smoothed = post_processor(outputs, targets)
+            resize_to = targets.shape[-2:]
+            resized_inputs = nn.functional.interpolate(
+                inputs, size=resize_to, mode='bilinear', align_corners=False
+            )
+
+            # filter = GuidedFilter(5, 1e-4)
+            # smoothed = filter(outputs, resized_inputs)
+            # # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
+            # smoothed = smoothed.mean(dim=1, keepdim=True)
+            blur = T.GaussianBlur(kernel_size=5, sigma=(1.0, 2.0))
+            smoothed = blur(outputs)
+
+            # Interpolate between the post-process and the targets depending on the std deviation.
+            # Normalize the std deviation
+            for i in range(batch_size):
+                std[i] = (std[i] - std[i].min()) / (std[i].max() - std[i].min() + 1e-6)
+
+            outputs = (1 - std) * outputs + std * smoothed
 
             # Calculate metrics
             abs_diff = torch.abs(outputs - targets)
@@ -84,6 +106,50 @@ def evaluate_preds_with_post_processing(post_processor, val_loader, device, outp
             delta1 += torch.sum(max_ratio < 1.25).item()
             delta2 += torch.sum(max_ratio < 1.25**2).item()
             delta3 += torch.sum(max_ratio < 1.25**3).item()
+
+            # Save some sample predictions
+            if total_samples <= 5 * batch_size:
+                for i in range(min(batch_size, 5)):
+                    idx = total_samples - batch_size + i
+
+                    # Convert tensors to numpy arrays
+                    input_np = inputs[i].cpu().permute(1, 2, 0).numpy()
+                    target_np = targets[i].cpu().squeeze().numpy()
+                    output_np = outputs[i].cpu().squeeze().numpy()
+                    std_np = std[i].cpu().squeeze().numpy()
+
+                    # Normalize for visualization
+                    input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
+
+                    # Create visualization
+                    plt.figure(figsize=(15, 5))
+
+                    plt.subplot(2, 2, 1)
+                    plt.imshow(input_np)
+                    plt.title("RGB Input")
+                    plt.axis('off')
+
+                    plt.subplot(2, 2, 2)
+                    plt.imshow(target_np, cmap='plasma')
+                    plt.title("Ground Truth Depth")
+                    plt.axis('off')
+
+                    plt.subplot(2, 2, 3)
+                    plt.imshow(output_np, cmap='plasma')
+                    plt.title("Predicted Depth")
+                    plt.axis('off')
+
+                    # print("Min std dev", np.min(std, dim=-1))
+                    plt.subplot(2, 2, 4)
+                    im = plt.imshow(std_np, cmap='plasma')
+                    plt.title("Std dev of model")
+                    plt.colorbar(im, fraction=0.046, pad=0.04)
+                    plt.axis('off')
+
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(output_dir, f"sample_{idx}.png"))
+                    plt.close()
+
             # Free up memory
             del inputs, targets, outputs, abs_diff, max_ratio
 
@@ -114,6 +180,26 @@ def evaluate_preds_with_post_processing(post_processor, val_loader, device, outp
 
 
 if __name__ == "__main__":
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="./configs/default.yml", help="The config file from which to load the hyperparameters")
+    args = parser.parse_args()
+
+    # Load config file
+    config = load_config(args.config)
+
+    assert config["model"]["type"] == "depth_anything"
+
+    eval_results_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_eval_results")
+    ensure_dir(eval_results_dir)
+
+    # Define paths
+    train_data_dir = os.path.join(config["data_dir"], "train")
+    test_data_dir = os.path.join(config["data_dir"], "test")
+
+    train_list_file = os.path.join(config["data_dir"], "train_list.txt")
+    test_list_file = os.path.join(config["data_dir"], "test_list.txt")
+
     if torch.cuda.is_available():
         DEVICE = torch.device("cuda")
     else:
@@ -121,9 +207,10 @@ if __name__ == "__main__":
 
     api = wandb.Api()
 
+    # ##### LOAD THE MODEL #####
+
     # I'd recomment to set this, as some artifacts are quite large and can fill up your home dir (max 20GB)
     os.environ["WANDB_ARTIFACT_DIR"] = f"/work/scratch/{os.getenv('USER')}/.artifacts"
-
 
     print("Downloading model artifact")
     model_artifact = api.artifact("MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5")
@@ -148,4 +235,110 @@ if __name__ == "__main__":
 
     model.load_state_dict(new_state_dict)
 
+    # ##### LOAD THE DATASET #####
+
+    train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+    test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+
     # How do we modify the number of heads in the backbone?
+    train_full_dataset = DepthDataset(
+        data_dir=train_data_dir,
+        list_file=train_list_file,
+        transform=train_transform,
+        target_transform=target_transform,
+        has_gt=True
+    )
+
+    # Create test dataset without ground truth
+    test_dataset = DepthDataset(
+        data_dir=test_data_dir,
+        list_file=test_list_file,
+        transform=test_transform,
+        has_gt=False  # Test set has no ground truth
+    )
+
+    # Split training dataset into train and validation
+    total_size = len(train_full_dataset)
+    train_size = int(0.85 * total_size)   # 85% for training
+    val_size = total_size - train_size    # 15% for validation
+
+    # Set a fixed random seed for reproducibility
+    torch.manual_seed(config["seed"])
+
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        train_full_dataset, [train_size, val_size]
+    )
+
+    # Get images to be used as visualizations duringn logging
+    train_log_rgb, train_log_depth, _ = train_dataset[0]
+    val_log_rgb, val_log_depth, _ = val_dataset[0]
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config["train"]["batch_size"],
+        shuffle=False,
+        num_workers=config["data"]["num_workers"],
+        pin_memory=config["data"]["pin_memory"],
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config["train"]["batch_size"],
+        shuffle=False,
+        num_workers=config["data"]["num_workers"],
+        pin_memory=config["data"]["pin_memory"],
+    )
+
+    # ##### TIME TO EVALUATE THE MODEL >:) #####
+
+    # Load the post processor based on the configuration.
+    post_processor = load_post_processor_from_config(config)
+
+    # Evaluate the model on validation set
+    print("Evaluating model on validation set with post-processing...")
+    metrics = evaluate_model_with_postprocess(model, post_processor, val_loader, DEVICE, eval_results_dir)
+
+    # Print metrics
+    print("\nValidation Metrics:")
+    for name, value in metrics.items():
+        print(f"{name}: {value:.4f}")
+
+"""
+More Heads baseline model
+Validation Metrics:
+MAE: 0.3918
+RMSE: 0.5829
+siRMSE: 0.1303
+REL: 0.1541
+Delta1: 0.8012
+Delta2: 0.9611
+Delta3: 0.9941
+
+More heads w std deviation smoothing, guided filter r=3 eps = 0.001
+FAKE!!! I inputted the ground truth
+MAE: 0.1656
+RMSE: 0.2889
+siRMSE: 0.0539
+REL: 0.0553
+Delta1: 0.9784
+Delta2: 0.9983
+Delta3: 0.9996
+
+Guided filter with r=3 eps=0.001
+Validation Metrics:
+MAE: 1.8631
+RMSE: 2.1395
+siRMSE: 4.4698
+REL: 0.7179
+Delta1: 0.3079
+Delta2: 0.4279
+Delta3: 0.5554
+
+MAE: 0.3916
+RMSE: 0.5825
+siRMSE: 0.1301
+REL: 0.1540
+Delta1: 0.8013
+Delta2: 0.9611
+Delta3: 0.9941
+"""

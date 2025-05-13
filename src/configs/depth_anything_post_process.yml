@@ -21,7 +21,10 @@ model:
   num_heads: 16
   include_pretrained_head: false
 
-post_process: {}
+post_process:
+  guided_filter:
+    r: 3
+    eps: 0.001
 
 data:
   num_workers: 2         # How many workers to use for parallel data loading
