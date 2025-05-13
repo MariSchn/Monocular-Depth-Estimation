@@ -137,6 +137,7 @@ class UncertaintyDepthAnything(nn.Module):
             param.requires_grad = False
         
         # Setup custom heads
+        self.num_heads = num_heads
         self.config = self.model.config 
         if include_pretrained_head:
             # Use the pretrained head if requested
@@ -210,7 +211,11 @@ class UncertaintyDepthAnything(nn.Module):
         predictions = torch.stack(predictions, dim=0)
 
         # Calculate the mean and variance of the predictions
-        x = torch.mean(predictions, dim=0)
-        std = torch.std(predictions, dim=0)
+        if self.num_heads > 1:
+            x = torch.mean(predictions, dim=0)
+            std = torch.std(predictions, dim=0)
+        else:
+            x = predictions.squeeze(0)
+            std = torch.zeros_like(x)
 
         return x, std
