@@ -175,13 +175,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
 
     # Save the best model
-    if config["logging"]["upload_to_wandb"]:
-        best_model_artifact = wandb.Artifact(name="best_model", type="model", description=f"Best model at epoch {best_epoch+1}")
-        best_model_artifact.add_file(os.path.join(output_dir, 'best_model.pth'), name="best_model.pth")
-        wandb.log_artifact(best_model_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
-    
-    # Load the best model
-    model.load_state_dict(torch.load(os.path.join(output_dir, 'best_model.pth')))
+    if config["train"]["num_epochs"] > 0:
+        if config["logging"]["upload_to_wandb"]:
+            best_model_artifact = wandb.Artifact(name="best_model", type="model", description=f"Best model at epoch {best_epoch+1}")
+            best_model_artifact.add_file(os.path.join(output_dir, 'best_model.pth'), name="best_model.pth")
+            wandb.log_artifact(best_model_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").replace("/", "").replace(":", "").lower()])
+        
+        # Load the best model
+        model.load_state_dict(torch.load(os.path.join(output_dir, 'best_model.pth')))
     
     return model
 
@@ -313,7 +314,7 @@ def evaluate_model(model, val_loader, device, output_dir):
         if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             val_artifact = wandb.Artifact(name=f"validation_images", type="predictions", description="Best model validation depth predictions")
             val_artifact.add_dir(temp_dir)
-            wandb.log_artifact(val_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+            wandb.log_artifact(val_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").replace("/", "").replace(":", "").lower()])
             val_artifact.wait()
 
     # Calculate final metrics using stored target shape
@@ -380,7 +381,7 @@ def generate_test_predictions(model, test_loader, device, output_dir):
         if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
             test_artifact = wandb.Artifact(name="test_images", type="predictions", description="Test depth predictions")
             test_artifact.add_dir(output_dir)
-            wandb.log_artifact(test_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+            wandb.log_artifact(test_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").replace("/", "").replace(":", "").lower()])
             test_artifact.wait()
 
 if __name__ == "__main__":
@@ -577,7 +578,7 @@ if __name__ == "__main__":
     if config["logging"]["log"] and config["logging"]["upload_to_wandb"]:
         csv_artifact = wandb.Artifact(name="predictions_csv", type="submission", description="Test depth predictions CSV")
         csv_artifact.add_file(os.path.join(predictions_dir, 'predictions.csv'), name="predictions.csv")
-        wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").lower()])
+        wandb.log_artifact(csv_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").replace("/", "").replace(":", "").lower()])
         csv_artifact.wait()
 
     wandb.finish()

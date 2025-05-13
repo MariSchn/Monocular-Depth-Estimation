@@ -42,9 +42,11 @@ class DepthDataset(Dataset):
             
             # Apply transformations
             if self.transform:
-                rgb = self.transform(rgb)
-            if isinstance(self.transform, DPTImageProcessor):
-                rgb = rgb.pixel_values[0]
+                if isinstance(self.transform, DPTImageProcessor):
+                    rgb = self.transform(rgb, return_tensors="pt")
+                    rgb = rgb.pixel_values[0]
+                else:
+                    rgb = self.transform(rgb)
             
             if self.target_transform:
                 depth = self.target_transform(depth)
@@ -62,8 +64,10 @@ class DepthDataset(Dataset):
             
             # Apply transformations
             if self.transform:
-                rgb = self.transform(rgb)
-            if isinstance(self.transform, DPTImageProcessor):
-                rgb = rgb.pixel_values[0]
+                if isinstance(self.transform, DPTImageProcessor):
+                    rgb = self.transform(rgb, return_tensors="pt")
+                    rgb = rgb.pixel_values[0]
+                else:
+                    rgb = self.transform(rgb)
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
