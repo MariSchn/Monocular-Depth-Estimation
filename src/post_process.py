@@ -93,17 +93,18 @@ class GuidedFilteringStep:
     def __str__(self):
         return f"GuidedFilter(r={self.radius}, epsilon={self.epsilon})"
 
-# class GaussianBlurStep:
-#     def __init__(self, radius=3, epsilon=1e-3):
-#         self.radius = radius
-#         self.epsilon = epsilon
-#         self.filter = GuidedFilter(self.radius, self.epsilon)
+class GaussianBlurStep:
+    def __init__(self, kernel_size=5, sigma=1.0):
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+        self.blur = transforms.GaussianBlur(kernel_size=self.kernel_size, sigma=(self.sigma, self.sigma))
 
-#     def __call__(self, outputs, **kwargs):
-#         return outputs
+    def __call__(self, outputs, **kwargs):
+        smoothed = self.blur(outputs)
+        return smoothed
 
-#     def __str__(self):
-#         return f"BilateralFilter(r={self.radius}, epsilon={self.epsilon})"
+    def __str__(self):
+        return f"GaussianBlur(kernel_size={self.kernel_size}, sigma={self.sigma})"
 
 
 def load_post_processor_from_config(config) -> PostProcessor:
@@ -113,6 +114,9 @@ def load_post_processor_from_config(config) -> PostProcessor:
         if "guided_filter" in config["post_process"]:
             gfilter_conf = config["post_process"]["guided_filter"]
             p.add_step(GuidedFilteringStep(gfilter_conf.get("r", 3), gfilter_conf.get("eps", 1e-3)))
+        if "gaussian_blur" in config["post_process"]:
+            gblur_conf = config["post_process"]["gaussian_blur"]
+            p.add_step(GaussianBlurStep(kernel_size=gblur_conf["kernel_size"], sigma=gblur_conf["sigma"]))
 
     return p
 

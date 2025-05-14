@@ -22,9 +22,12 @@ model:
   include_pretrained_head: false
 
 post_process:
-  guided_filter:
-    r: 16
-    eps: 0.25
+  # guided_filter:
+  #   r: 16
+  #   eps: 0.25
+  gaussian_blur:
+    kernel_size: 5
+    sigma: 1
 
 data:
   num_workers: 2         # How many workers to use for parallel data loading
