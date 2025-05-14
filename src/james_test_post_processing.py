@@ -48,18 +48,7 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
             outputs, std = model(inputs)
 
             # Perform post-processing.
-            # smoothed = post_processor(outputs, targets)
-            resize_to = targets.shape[-2:]
-            resized_inputs = nn.functional.interpolate(
-                inputs, size=resize_to, mode='bilinear', align_corners=False
-            )
-
-            # filter = GuidedFilter(5, 1e-4)
-            # smoothed = filter(outputs, resized_inputs)
-            # # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
-            # smoothed = smoothed.mean(dim=1, keepdim=True)
-            blur = T.GaussianBlur(kernel_size=5, sigma=(1.0, 2.0))
-            smoothed = blur(outputs)
+            smoothed = post_processor(outputs, inputs=inputs, resize_to=target_shape[-2:])
 
             # Interpolate between the post-process and the targets depending on the std deviation.
             # Normalize the std deviation
@@ -334,6 +323,7 @@ Delta1: 0.3079
 Delta2: 0.4279
 Delta3: 0.5554
 
+# GAUSSIAN KERNEL
 MAE: 0.3916
 RMSE: 0.5825
 siRMSE: 0.1301

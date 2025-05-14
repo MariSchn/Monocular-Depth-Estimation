@@ -27,7 +27,7 @@ class PostProcessor():
         Initialize the post-processor with an optional list of steps.
 
         Args:
-            steps (List[Callable]): List of callables that accept and return a modified kwargs dict.
+            steps (List[Callable]): List of callables that manipulate model output.
         """
         self.steps = steps or []
 
@@ -35,24 +35,26 @@ class PostProcessor():
         """Add a single post-processing step."""
         self.steps.append(step)
 
-    def __call__(self, **kwargs) -> Any:
+    def __call__(self, output, **kwargs) -> Any:
         """
         Apply all configured post-processing steps using keyword arguments.
 
         Args:
+            output: Model output to be processed
             kwargs: Arbitrary keyword arguments passed to each step.
 
         Returns:
             Any: The final output after post-processing.
         """
         for step in self.steps:
-            kwargs = step(**kwargs)
-        return kwargs
+            output = step(output, **kwargs)
+        return output
 
 class ResizeStep:
-    def __call__(self, model_output, inputs):
+    def __call__(self, model_output, **kwargs):
         # Resize to the same dimensions as the input.
-        resize_to = inputs.shape[-2:]
+        resize_to = kwargs.get("resize_to")
+        assert resize_to is not None, "Provide the `resize_to` np.shape parameter to use this step"
         model_output = nn.functional.interpolate(
             model_output, size=resize_to, mode='bilinear', align_corners=False
         )
@@ -60,12 +62,19 @@ class ResizeStep:
 
 class GuidedFilteringStep:
     def __init__(self, radius=3, epsilon=1e-3):
-        # TODO: specify the r and eps parameters with the configuration
         self.filter = GuidedFilter(radius, epsilon)
 
-    def __call__(self, outputs, inputs):
+    def __call__(self, outputs, **kwargs):
+        inputs = kwargs.get("inputs")
+        assert inputs is not None, "Provide the `inputs` RGB images to use this step"
+
+        # If the inputs are not the same size as the output, use bilinear interpolation to resize it.
+        resized_inputs = nn.functional.interpolate(
+            inputs, size=outputs.shape[-2:], mode='bilinear', align_corners=False
+        )
+
         # Use the original RGB inputs as a guide to perform smoothing.
-        filtered = self.filter(outputs, inputs)
+        filtered = self.filter(outputs, resized_inputs)
         # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
         filtered = filtered.mean(dim=1, keepdim=True)
 
