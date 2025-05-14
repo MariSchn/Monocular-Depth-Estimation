@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yaml
 
+
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet
 from data import DepthDataset
@@ -50,6 +51,9 @@ class PostProcessor():
             output = step(output, **kwargs)
         return output
 
+    def __str__(self) -> str:
+        return ",".join([str(s) for s in self.steps])
+
 class ResizeStep:
     def __call__(self, model_output, **kwargs):
         # Resize to the same dimensions as the input.
@@ -60,9 +64,14 @@ class ResizeStep:
         )
         return model_output
 
+    def __str__(self):
+        return "ResizeStep"
+
 class GuidedFilteringStep:
     def __init__(self, radius=3, epsilon=1e-3):
-        self.filter = GuidedFilter(radius, epsilon)
+        self.radius = radius
+        self.epsilon = epsilon
+        self.filter = GuidedFilter(self.radius, self.epsilon)
 
     def __call__(self, outputs, **kwargs):
         inputs = kwargs.get("inputs")
@@ -75,10 +84,27 @@ class GuidedFilteringStep:
 
         # Use the original RGB inputs as a guide to perform smoothing.
         filtered = self.filter(outputs, resized_inputs)
+
         # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
         filtered = filtered.mean(dim=1, keepdim=True)
 
         return filtered
+
+    def __str__(self):
+        return f"GuidedFilter(r={self.radius}, epsilon={self.epsilon})"
+
+# class GaussianBlurStep:
+#     def __init__(self, radius=3, epsilon=1e-3):
+#         self.radius = radius
+#         self.epsilon = epsilon
+#         self.filter = GuidedFilter(self.radius, self.epsilon)
+
+#     def __call__(self, outputs, **kwargs):
+#         return outputs
+
+#     def __str__(self):
+#         return f"BilateralFilter(r={self.radius}, epsilon={self.epsilon})"
+
 
 def load_post_processor_from_config(config) -> PostProcessor:
     p = PostProcessor()

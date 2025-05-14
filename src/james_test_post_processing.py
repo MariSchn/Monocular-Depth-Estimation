@@ -5,13 +5,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yaml
 from transformers import AutoImageProcessor
 import torchvision.transforms as T
+
 
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet, UncertaintyDepthAnything
@@ -45,17 +46,18 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                 target_shape = targets.shape
 
             # Forward pass
-            outputs, std = model(inputs)
+            raw_outputs, std = model(inputs)
 
             # Perform post-processing.
-            smoothed = post_processor(outputs, inputs=inputs, resize_to=target_shape[-2:])
+            smoothed = post_processor(raw_outputs, inputs=inputs, resize_to=target_shape[-2:])
 
+            normalized_std = std.clone()
             # Interpolate between the post-process and the targets depending on the std deviation.
             # Normalize the std deviation
             for i in range(batch_size):
-                std[i] = (std[i] - std[i].min()) / (std[i].max() - std[i].min() + 1e-6)
+                normalized_std[i] = (std[i] - std[i].min()) / (std[i].max() - std[i].min() + 1e-6)
 
-            outputs = (1 - std) * outputs + std * smoothed
+            outputs = (1 - normalized_std) * raw_outputs + normalized_std * smoothed
 
             # Calculate metrics
             abs_diff = torch.abs(outputs - targets)
@@ -104,6 +106,7 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                     # Convert tensors to numpy arrays
                     input_np = inputs[i].cpu().permute(1, 2, 0).numpy()
                     target_np = targets[i].cpu().squeeze().numpy()
+                    raw_output_np = raw_outputs[i].cpu().squeeze().numpy()
                     output_np = outputs[i].cpu().squeeze().numpy()
                     std_np = std[i].cpu().squeeze().numpy()
 
@@ -111,36 +114,44 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
                     # Create visualization
-                    plt.figure(figsize=(15, 5))
+                    fig = plt.figure(figsize=(15, 5))
 
-                    plt.subplot(2, 2, 1)
+                    plt.subplot(3, 2, 1)
                     plt.imshow(input_np)
                     plt.title("RGB Input")
                     plt.axis('off')
 
-                    plt.subplot(2, 2, 2)
+                    plt.subplot(3, 2, 2)
                     plt.imshow(target_np, cmap='plasma')
                     plt.title("Ground Truth Depth")
                     plt.axis('off')
 
-                    plt.subplot(2, 2, 3)
+                    plt.subplot(3, 2, 3)
+                    plt.imshow(raw_output_np, cmap='plasma')
+                    plt.title("Raw Prediction")
+                    plt.axis('off')
+
+                    plt.subplot(3, 2, 4)
                     plt.imshow(output_np, cmap='plasma')
-                    plt.title("Predicted Depth")
+                    plt.title("Post processed Prediction")
                     plt.axis('off')
 
                     # print("Min std dev", np.min(std, dim=-1))
-                    plt.subplot(2, 2, 4)
+                    plt.subplot(3, 2, 5)
                     im = plt.imshow(std_np, cmap='plasma')
                     plt.title("Std dev of model")
                     plt.colorbar(im, fraction=0.046, pad=0.04)
                     plt.axis('off')
 
-                    plt.tight_layout()
+                    # Dump a post processor text to the bottom of the plot.
+                    fig.text(0.5, 0.01, str(post_processor), ha='center', fontsize=10)
+
+                    # plt.tight_layout()
                     plt.savefig(os.path.join(output_dir, f"sample_{idx}.png"))
                     plt.close()
 
             # Free up memory
-            del inputs, targets, outputs, abs_diff, max_ratio
+            del inputs, targets, raw_outputs, outputs, std, abs_diff, max_ratio
 
         # Clear CUDA cache
         torch.cuda.empty_cache()
@@ -262,6 +273,8 @@ if __name__ == "__main__":
     train_log_rgb, train_log_depth, _ = train_dataset[0]
     val_log_rgb, val_log_depth, _ = val_dataset[0]
 
+    # ONLY DO 32 indices to try out different filtering :)
+    val_dataset = Subset(val_dataset, indices=range(128))
     val_loader = DataLoader(
         val_dataset,
         batch_size=config["train"]["batch_size"],
