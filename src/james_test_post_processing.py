@@ -49,15 +49,13 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
             raw_outputs, std = model(inputs)
 
             # Perform post-processing.
-            smoothed = post_processor(raw_outputs, inputs=inputs, resize_to=target_shape[-2:])
-
-            normalized_std = std.clone()
-            # Interpolate between the post-process and the targets depending on the std deviation.
-            # Normalize the std deviation
-            for i in range(batch_size):
-                normalized_std[i] = (std[i] - std[i].min()) / (std[i].max() - std[i].min() + 1e-6)
-
-            outputs = (1 - normalized_std) * raw_outputs + normalized_std * smoothed
+            outputs = post_processor(
+                raw_outputs,
+                inputs=inputs,
+                resize_to=target_shape[-2:],
+                raw_outputs=raw_outputs,
+                std=std,
+            )
 
             # Calculate metrics
             abs_diff = torch.abs(outputs - targets)
