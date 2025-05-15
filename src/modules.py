@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from transformers import AutoImageProcessor, AutoModel
+from PIL import Image
 import torch.nn.functional as F
 
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
@@ -10,8 +12,10 @@ class UNetBlock(nn.Module):
         super(UNetBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
+
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        
         self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn3 = nn.BatchNorm2d(out_channels)
 
@@ -24,8 +28,9 @@ class UNetBlock(nn.Module):
         return x
     
 class SimpleUNet(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True):
         super(SimpleUNet, self).__init__()
+        self.conv_transpose = conv_transpose
         
         # Encoder blocks
         self.enc1 = UNetBlock(3, hidden_channels, dilation)
@@ -33,8 +38,12 @@ class SimpleUNet(nn.Module):
         self.enc3 = UNetBlock(hidden_channels * 2, hidden_channels * 4, dilation)
         
         # Decoder blocks
+        self.upsample1 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 4, kernel_size=4, stride=2, padding=1)
         self.dec3 = UNetBlock(hidden_channels * 6, hidden_channels * 2, dilation)
+
+        self.upsample2 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels * 2, kernel_size=4, stride=2, padding=1)
         self.dec2 = UNetBlock(hidden_channels * 3, hidden_channels, dilation)
+
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
         
         # Final heads that are combined for depth and uncertainty estimation
@@ -83,10 +92,16 @@ class SimpleUNet(nn.Module):
         x = self.enc3(x)
         
         # Decoder with skip connections
+        if self.conv_transpose:
+            x = self.upsample1(x)
+
         x = nn.functional.interpolate(x, size=enc2.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc2], dim=1)
         x = self.dec3(x)
 
+        if self.conv_transpose:
+            x = self.upsample2(x)
+            
         x = nn.functional.interpolate(x, size=enc1.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc1], dim=1)
         x = self.dec2(x)
@@ -100,7 +115,7 @@ class SimpleUNet(nn.Module):
         x = x.mean(dim=1)
 
         # Output non-negative depth values
-        x = torch.sigmoid(x)*10
+        x = torch.sigmoid(x) * 10
         
         return x, std
     
@@ -219,3 +234,98 @@ class UncertaintyDepthAnything(nn.Module):
             std = torch.zeros_like(x)
 
         return x, std
+    
+class UNetWithDinoV2Backbone(nn.Module):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
+        super().__init__()
+
+        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
+        self.backbone = AutoModel.from_pretrained('facebook/dinov2-small')
+
+        self.backbone.eval()
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # Decoder blocks
+        self.dec3 = UNetBlock(384, 128, dilation)
+        self.upsample = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1)
+
+        self.dec2 = UNetBlock(128, 128, dilation)
+        self.upsample2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+
+        self.dec1 = UNetBlock(64, 64, dilation)
+        self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
+        
+        # Final heads that are combined for depth and uncertainty estimation
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(32, 32, kernel_size=3, padding=1),
+                nn.Conv2d(32, 1, kernel_size=1)
+            ) for _ in range(num_heads)
+        ])
+
+        # Copy the initial state of the heads
+        self.initial_head_params = self.get_head_params().clone().detach()
+
+        # Pooling and upsampling
+        self.pool = nn.MaxPool2d(2)
+
+    def get_head_params(self):
+        """
+        Returns the parameters of the heads as a flattened tensor.
+        This is useful for optimization purposes.
+        """
+        return torch.cat([
+                    torch.cat([
+                        p.view(-1) for p in head.parameters() if p.requires_grad
+                    ], dim=0) for head in self.heads
+                ], dim=0)
+
+    def head_penalty(self):
+        """
+        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        """
+        if len(self.heads) == 1:
+            return torch.tensor(0.0, device=self.initial_head_params.device)
+
+        head_params = self.get_head_params()
+        return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
+
+
+    def forward(self, x):
+        images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
+        inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
+
+        with torch.no_grad():
+            outputs = self.backbone(**inputs)
+
+        tokens = outputs.last_hidden_state[:, 1:, :]
+        B, N, C = tokens.shape
+        H = W = int(N ** 0.5)
+        feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
+
+        # resize feature map to fit original aspect ratio
+        out = nn.functional.interpolate(feature_map, size=(54,70), mode='bilinear', align_corners=False)
+
+        out = self.dec3(out)
+        out = self.upsample(out)
+
+        out = self.dec2(out)
+        out = self.upsample2(out)
+
+        out = self.dec1(out)
+        out = self.upsample3(out)
+
+        # resize to original image size
+        out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
+
+        # Run inference through all heads
+        out = torch.stack([head(out) for head in self.heads], dim=1)
+
+        std = out.std(dim=1)
+        out = out.mean(dim=1)
+
+        # Output non-negative depth values
+        out = torch.sigmoid(out) * 10
+        
+        return out, std

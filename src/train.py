@@ -14,7 +14,7 @@ from tqdm import tqdm
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
 
 from utils import *
-from modules import SimpleUNet, UncertaintyDepthAnything
+from modules import SimpleUNet, UncertaintyDepthAnything, UNetWithDinoV2Backbone
 from data import DepthDataset
 from create_prediction_csv import process_depth_maps
 
@@ -424,6 +424,20 @@ if __name__ == "__main__":
     elif config["model"]["type"] == "depth_anything":
         train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
         test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+    elif config["model"]["type"] == "dinov2_backboned_unet":
+        train_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        
+        test_transform = transforms.Compose([
+            transforms.Resize((426, 560)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
 
     # Create training dataset with ground truth
@@ -505,9 +519,11 @@ if __name__ == "__main__":
 
 
     if config["model"]["type"] == "u_net":
-        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
+        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"], conv_transpose=config["model"]["conv_transpose"])
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
+    elif config["model"]["type"] == "dinov2_backboned_unet":
+        model = UNetWithDinoV2Backbone(num_heads=config["model"]["num_heads"])
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
     model = nn.DataParallel(model)
