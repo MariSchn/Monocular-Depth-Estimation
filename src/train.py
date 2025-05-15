@@ -523,7 +523,7 @@ if __name__ == "__main__":
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
     elif config["model"]["type"] == "dinov2_backboned_unet":
-        model = UNetWithDinoV2Backbone(num_heads=config["model"]["num_heads"])
+        model = UNetWithDinoV2Backbone(num_heads=config["model"]["num_heads"], image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]))
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
     model = nn.DataParallel(model)

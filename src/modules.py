@@ -236,8 +236,12 @@ class UncertaintyDepthAnything(nn.Module):
         return x, std
     
 class UNetWithDinoV2Backbone(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560)):
         super().__init__()
+        self.image_size = image_size
+
+        self.upsampling_amount = 3
+        self.upsampling_factor = 2
 
         self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
         self.backbone = AutoModel.from_pretrained('facebook/dinov2-small')
@@ -247,20 +251,20 @@ class UNetWithDinoV2Backbone(nn.Module):
             param.requires_grad = False
 
         # Decoder blocks
-        self.dec3 = UNetBlock(384, 128, dilation)
-        self.upsample = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1)
+        self.dec3 = UNetBlock(384, hidden_channels * 2, dilation)
+        self.upsample = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels * 2, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
 
-        self.dec2 = UNetBlock(128, 128, dilation)
-        self.upsample2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        self.dec2 = UNetBlock(hidden_channels * 2, hidden_channels * 2, dilation)
+        self.upsample2 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
 
-        self.dec1 = UNetBlock(64, 64, dilation)
-        self.upsample3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
+        self.dec1 = UNetBlock(hidden_channels, hidden_channels, dilation)
+        self.upsample3 = nn.ConvTranspose2d(hidden_channels, hidden_channels // 2, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
         
         # Final heads that are combined for depth and uncertainty estimation
         self.heads = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(32, 32, kernel_size=3, padding=1),
-                nn.Conv2d(32, 1, kernel_size=1)
+                nn.Conv2d(hidden_channels // 2, hidden_channels // 2, kernel_size=3, padding=1),
+                nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
             ) for _ in range(num_heads)
         ])
 
@@ -304,8 +308,11 @@ class UNetWithDinoV2Backbone(nn.Module):
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
 
-        # resize feature map to fit original aspect ratio
-        out = nn.functional.interpolate(feature_map, size=(54,70), mode='bilinear', align_corners=False)
+        # Resize feature map to fit original aspect ratio
+        total_scale_factor = self.upsampling_factor ** self.upsampling_amount
+        patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
+
+        out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
         out = self.dec3(out)
         out = self.upsample(out)
@@ -317,7 +324,7 @@ class UNetWithDinoV2Backbone(nn.Module):
         out = self.upsample3(out)
 
         # resize to original image size
-        out = nn.functional.interpolate(out, size=(426, 560), mode='bilinear', align_corners=False)
+        out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)
 
         # Run inference through all heads
         out = torch.stack([head(out) for head in self.heads], dim=1)
