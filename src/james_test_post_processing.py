@@ -114,23 +114,27 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                     # Create visualization
                     fig = plt.figure(figsize=(15, 5))
 
+                    all_data = np.concatenate([target_np.flatten(), raw_output_np.flatten(), output_np.flatten()])
+                    vmin, vmax = all_data.min(), all_data.max()
+
                     plt.subplot(3, 2, 1)
                     plt.imshow(input_np)
                     plt.title("RGB Input")
                     plt.axis('off')
 
                     plt.subplot(3, 2, 2)
-                    plt.imshow(target_np, cmap='plasma')
+                    im = plt.imshow(target_np, cmap='plasma', vmin=vmin, vmax=vmax)
                     plt.title("Ground Truth Depth")
+                    plt.colorbar(im, fraction=0.046, pad=0.04)
                     plt.axis('off')
 
                     plt.subplot(3, 2, 3)
-                    plt.imshow(raw_output_np, cmap='plasma')
+                    plt.imshow(raw_output_np, cmap='plasma', vmin=vmin, vmax=vmax)
                     plt.title("Raw Prediction")
                     plt.axis('off')
 
                     plt.subplot(3, 2, 4)
-                    plt.imshow(output_np, cmap='plasma')
+                    plt.imshow(output_np, cmap='plasma', vmin=vmin, vmax=vmax)
                     plt.title("Post processed Prediction")
                     plt.axis('off')
 
