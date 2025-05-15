@@ -253,7 +253,7 @@ class UNetWithDinoV2Backbone(nn.Module):
 
         # Decoder blocks
         self.dec3 = UNetBlock(384, hidden_channels * 2, dilation)
-        self.upsample = nn.ConvTranspose2d(
+        self.upsample3 = nn.ConvTranspose2d(
             hidden_channels * 2, 
             hidden_channels * 2, 
             kernel_size=2 * self.upsampling_factor, 
@@ -271,7 +271,7 @@ class UNetWithDinoV2Backbone(nn.Module):
         )
 
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
-        self.upsample3 = nn.ConvTranspose2d(
+        self.upsample1 = nn.ConvTranspose2d(
             hidden_channels // 2, 
             hidden_channels // 2, 
             kernel_size=2 * self.upsampling_factor, 
@@ -330,12 +330,11 @@ class UNetWithDinoV2Backbone(nn.Module):
         # Resize feature map to fit original aspect ratio
         total_scale_factor = self.upsampling_factor ** self.upsampling_amount
         patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
-
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
         out = self.dec3(out)
         if self.conv_transpose:
-            out = self.upsample(out)
+            out = self.upsample3(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
@@ -347,7 +346,7 @@ class UNetWithDinoV2Backbone(nn.Module):
 
         out = self.dec1(out)
         if self.conv_transpose:
-            out = self.upsample3(out)
+            out = self.upsample1(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
