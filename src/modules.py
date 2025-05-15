@@ -236,9 +236,10 @@ class UncertaintyDepthAnything(nn.Module):
         return x, std
     
 class UNetWithDinoV2Backbone(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560)):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True):
         super().__init__()
         self.image_size = image_size
+        self.conv_transpose = conv_transpose
 
         self.upsampling_amount = 3
         self.upsampling_factor = 2
@@ -252,13 +253,31 @@ class UNetWithDinoV2Backbone(nn.Module):
 
         # Decoder blocks
         self.dec3 = UNetBlock(384, hidden_channels * 2, dilation)
-        self.upsample = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels * 2, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
+        self.upsample = nn.ConvTranspose2d(
+            hidden_channels * 2, 
+            hidden_channels * 2, 
+            kernel_size=2 * self.upsampling_factor, 
+            stride=self.upsampling_factor, 
+            padding=self.upsampling_factor // 2
+        )
 
-        self.dec2 = UNetBlock(hidden_channels * 2, hidden_channels * 2, dilation)
-        self.upsample2 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
+        self.dec2 = UNetBlock(hidden_channels * 2, hidden_channels, dilation)
+        self.upsample2 = nn.ConvTranspose2d(
+            hidden_channels, 
+            hidden_channels, 
+            kernel_size=2 * self.upsampling_factor, 
+            stride=self.upsampling_factor, 
+            padding=self.upsampling_factor // 2
+        )
 
-        self.dec1 = UNetBlock(hidden_channels, hidden_channels, dilation)
-        self.upsample3 = nn.ConvTranspose2d(hidden_channels, hidden_channels // 2, kernel_size=2*self.upsampling_factor, stride=self.upsampling_factor, padding=self.upsampling_factor // 2)
+        self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
+        self.upsample3 = nn.ConvTranspose2d(
+            hidden_channels // 2, 
+            hidden_channels // 2, 
+            kernel_size=2 * self.upsampling_factor, 
+            stride=self.upsampling_factor, 
+            padding=self.upsampling_factor // 2
+        )
         
         # Final heads that are combined for depth and uncertainty estimation
         self.heads = nn.ModuleList([
@@ -315,13 +334,22 @@ class UNetWithDinoV2Backbone(nn.Module):
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
         out = self.dec3(out)
-        out = self.upsample(out)
+        if self.conv_transpose:
+            out = self.upsample(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
         out = self.dec2(out)
-        out = self.upsample2(out)
+        if self.conv_transpose:
+            out = self.upsample2(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
         out = self.dec1(out)
-        out = self.upsample3(out)
+        if self.conv_transpose:
+            out = self.upsample3(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
         # resize to original image size
         out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)

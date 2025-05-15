@@ -517,15 +517,27 @@ if __name__ == "__main__":
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
 
-
     if config["model"]["type"] == "u_net":
-        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"], conv_transpose=config["model"]["conv_transpose"])
+        model = SimpleUNet(
+            hidden_channels=config["model"]["hidden_channels"], 
+            dilation=config["model"]["dilation"], 
+            num_heads=config["model"]["num_heads"], 
+            conv_transpose=config["model"]["conv_transpose"]
+        )
     elif config["model"]["type"] == "depth_anything":
-        model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
+        model = UncertaintyDepthAnything(
+            num_heads=config["model"]["num_heads"], 
+            include_pretrained_head=config["model"]["include_pretrained_head"]
+        )
     elif config["model"]["type"] == "dinov2_backboned_unet":
-        model = UNetWithDinoV2Backbone(num_heads=config["model"]["num_heads"], image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]))
+        model = UNetWithDinoV2Backbone(
+            num_heads=config["model"]["num_heads"], 
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"]
+        )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
+    
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
