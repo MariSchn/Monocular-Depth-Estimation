@@ -28,8 +28,9 @@ class UNetBlock(nn.Module):
         return x
     
 class SimpleUNet(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True):
         super(SimpleUNet, self).__init__()
+        self.conv_transpose = conv_transpose
         
         # Encoder blocks
         self.enc1 = UNetBlock(3, hidden_channels, dilation)
@@ -91,12 +92,16 @@ class SimpleUNet(nn.Module):
         x = self.enc3(x)
         
         # Decoder with skip connections
-        x = self.upsample1(x)
+        if self.conv_transpose:
+            x = self.upsample1(x)
+
         x = nn.functional.interpolate(x, size=enc2.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc2], dim=1)
         x = self.dec3(x)
 
-        x = self.upsample2(x)
+        if self.conv_transpose:
+            x = self.upsample2(x)
+            
         x = nn.functional.interpolate(x, size=enc1.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc1], dim=1)
         x = self.dec2(x)

@@ -519,7 +519,7 @@ if __name__ == "__main__":
     
     
     if config["model"]["type"] == "u_net":
-        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"])
+        model = SimpleUNet(hidden_channels=config["model"]["hidden_channels"], dilation=config["model"]["dilation"], num_heads=config["model"]["num_heads"], conv_transpose=config["model"]["conv_transpose"])
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(num_heads=config["model"]["num_heads"], include_pretrained_head=config["model"]["include_pretrained_head"])
     elif config["model"]["type"] == "dinov2_backboned_unet":
