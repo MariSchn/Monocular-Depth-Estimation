@@ -106,6 +106,22 @@ class GaussianBlurStep:
     def __str__(self):
         return f"GaussianBlur(kernel_size={self.kernel_size}, sigma={self.sigma})"
 
+class BoxFilter:
+    def __init__(self, kernel_size=5):
+        self.kernel_size = kernel_size
+
+    def __call__(self, outputs, **kwargs):
+        weight = torch.ones(1, 1, self.kernel_size, self.kernel_size, device=outputs.device, dtype=outputs.dtype)
+        weight /= self.kernel_size ** 2
+
+        # Apply depthwise conv: groups=C to apply same kernel per channel
+        filtered = nn.functional.conv2d(outputs, weight, padding=self.kernel_size // 2, groups=1)
+        return filtered
+
+    def __str__(self):
+        return f"BoxFilter(kernel_size={self.kernel_size})"
+
+
 class NormalizedStdInterpolation:
     def __call__(self, outputs, **kwargs):
         raw_outputs = kwargs.get("raw_outputs")
@@ -126,7 +142,6 @@ class NormalizedStdInterpolation:
     def __str__(self):
         return f"NormalizedStdInterpolation"
 
-
 def load_post_processor_from_config(config) -> PostProcessor:
     p = PostProcessor()
     p.add_step(ResizeStep())
@@ -137,6 +152,11 @@ def load_post_processor_from_config(config) -> PostProcessor:
         if "gaussian_blur" in config["post_process"]:
             gblur_conf = config["post_process"]["gaussian_blur"]
             p.add_step(GaussianBlurStep(kernel_size=gblur_conf["kernel_size"], sigma=gblur_conf["sigma"]))
+        if "box_filter" in config["post_process"]:
+            boxfilter_conf = config["post_process"]["box_filter"]
+            p.add_step(BoxFilter(kernel_size=boxfilter_conf.get("kernel_size")))
+
+        # Add interpolation after filtering steps :)
         if "normalized_std_interpolation" in config["post_process"]:
             p.add_step(NormalizedStdInterpolation())
 

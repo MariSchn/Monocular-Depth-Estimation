@@ -21,6 +21,7 @@ model:
   num_heads: 16
   include_pretrained_head: false
 
+
   wandb_artifact_fullname: "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
 post_process: {}
