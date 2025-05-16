@@ -108,6 +108,10 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                     output_np = outputs[i].cpu().squeeze().numpy()
                     std_np = std[i].cpu().squeeze().numpy()
 
+                    # Assume img1 and img2 are (H, W) or (H, W, C), normalized to [0, 1]
+                    diff = np.abs(raw_output_np - output_np)
+                    diff_gray = diff if diff.ndim == 2 else diff.mean(axis=2)
+
                     # Normalize for visualization
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
@@ -138,8 +142,15 @@ def evaluate_model_with_postprocess(model, post_processor, val_loader, device, o
                     plt.title("Post processed Prediction")
                     plt.axis('off')
 
-                    # print("Min std dev", np.min(std, dim=-1))
+
                     plt.subplot(3, 2, 5)
+                    plt.imshow(diff_gray, cmap='hot')
+                    plt.colorbar(label="Absolute Difference")
+                    plt.title("Difference between raw and post processed Heatmap")
+                    plt.axis('off')
+                    plt.show()
+
+                    plt.subplot(3, 2, 6)
                     im = plt.imshow(std_np, cmap='plasma')
                     plt.title("Std dev of model")
                     plt.colorbar(im, fraction=0.046, pad=0.04)
