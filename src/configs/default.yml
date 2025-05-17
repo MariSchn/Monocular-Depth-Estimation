@@ -10,7 +10,7 @@ train:
   learning_rate: 0.001
   weight_decay: 0.001
   gradient_regularizer_weight: 0
-  gradient_loss_weight: 0
+  gradient_loss_weight: 1
   head_penalty_weight: [1, 0]  # Weight is scheduled from first value to second value over the course of training
 
 model:
@@ -19,6 +19,7 @@ model:
   dilation: 1
 
   conv_transpose: true # Whether to use conv transpose layers in the decoder
+  weight_initialization: "glorot" # The weight initialization method to use. ["glorot", "default"]
   
   num_heads: 8
   include_pretrained_head: false

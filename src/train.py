@@ -522,18 +522,21 @@ if __name__ == "__main__":
             hidden_channels=config["model"]["hidden_channels"], 
             dilation=config["model"]["dilation"], 
             num_heads=config["model"]["num_heads"], 
-            conv_transpose=config["model"]["conv_transpose"]
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(
             num_heads=config["model"]["num_heads"], 
-            include_pretrained_head=config["model"]["include_pretrained_head"]
+            include_pretrained_head=config["model"]["include_pretrained_head"],
+            weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
         model = UNetWithDinoV2Backbone(
             num_heads=config["model"]["num_heads"], 
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
-            conv_transpose=config["model"]["conv_transpose"]
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
         )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")

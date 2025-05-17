@@ -28,7 +28,7 @@ class UNetBlock(nn.Module):
         return x
     
 class SimpleUNet(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True, weight_initialization="glorot"):
         super(SimpleUNet, self).__init__()
         self.conv_transpose = conv_transpose
         
@@ -54,11 +54,48 @@ class SimpleUNet(nn.Module):
             ) for _ in range(num_heads)
         ])
 
+        # Initialize weights
+        self.initialize_weights(weight_initialization)
+
         # Copy the initial state of the heads
         self.initial_head_params = self.get_head_params().clone().detach()
 
         # Pooling and upsampling
         self.pool = nn.MaxPool2d(2)
+
+    def initialize_weights(self, method):
+        """
+        Initialize the weights of the model, excluding the backbone.
+        """
+        if method == "default":
+            return
+        elif method == "glorot":
+            modules_to_initialize = [
+                self.enc1, self.enc2, self.enc3,
+                self.dec3, self.upsample3,
+                self.dec2, self.upsample2,
+                self.dec1, self.upsample1,
+                self.heads
+            ]
+            for module_group in modules_to_initialize:
+                for m in module_group.modules():
+                    if isinstance(m, nn.Conv2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.BatchNorm2d):
+                        nn.init.ones_(m.weight)
+                        nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.Linear):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.ConvTranspose2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+        else:
+            raise ValueError(f"Unknown weight initialization method: {method}")
 
     def get_head_params(self):
         """
@@ -131,7 +168,8 @@ class UncertaintyDepthAnything(nn.Module):
             num_heads: int = 1, 
             include_pretrained_head: bool = False,
             model_path: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",
-            max_depth: float = 10.0    
+            max_depth: float = 10.0,
+            weight_initialization: str = "glorot",
         ):
         super().__init__()
 
@@ -169,8 +207,42 @@ class UncertaintyDepthAnything(nn.Module):
                 head.train()
                 head.max_depth = max_depth
 
+        # Initialize weights
+        self.initialize_weights(weight_initialization)
+
         # Copy the initial state of the heads
         self.initial_head_params = self.get_head_params().clone().detach()
+
+    def initialize_weights(self, method):
+        """
+        Initialize the weights of the model, excluding the backbone.
+        """
+        if method == "default":
+            return
+        elif method == "glorot":
+            print("Using Glorot initialization")
+            modules_to_initialize = [
+                self.heads
+            ]
+            for module_group in modules_to_initialize:
+                for m in module_group.modules():
+                    if isinstance(m, nn.Conv2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.BatchNorm2d):
+                        nn.init.ones_(m.weight)
+                        nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.Linear):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.ConvTranspose2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+        else:
+            raise ValueError(f"Unknown weight initialization method: {method}")
 
     def get_head_params(self):
         """
@@ -236,7 +308,7 @@ class UncertaintyDepthAnything(nn.Module):
         return x, std
     
 class UNetWithDinoV2Backbone(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot"):
         super().__init__()
         self.image_size = image_size
         self.conv_transpose = conv_transpose
@@ -287,11 +359,48 @@ class UNetWithDinoV2Backbone(nn.Module):
             ) for _ in range(num_heads)
         ])
 
+        # Initialize weights
+        self.initialize_weights(weight_initialization)
+
         # Copy the initial state of the heads
         self.initial_head_params = self.get_head_params().clone().detach()
 
         # Pooling and upsampling
         self.pool = nn.MaxPool2d(2)
+
+    def initialize_weights(self, method):
+        """
+        Initialize the weights of the model, excluding the backbone.
+        """
+        if method == "default":
+            return
+        elif method == "glorot":
+            print("Using Glorot initialization")
+            modules_to_initialize = [
+                self.dec3, self.upsample3,
+                self.dec2, self.upsample2,
+                self.dec1, self.upsample1,
+                self.heads
+            ]
+            for module_group in modules_to_initialize:
+                for m in module_group.modules():
+                    if isinstance(m, nn.Conv2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.BatchNorm2d):
+                        nn.init.ones_(m.weight)
+                        nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.Linear):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.ConvTranspose2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+        else:
+            raise ValueError(f"Unknown weight initialization method: {method}")
 
     def get_head_params(self):
         """
