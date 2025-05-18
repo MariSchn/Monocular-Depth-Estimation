@@ -121,6 +121,60 @@ class BoxFilter:
     def __str__(self):
         return f"BoxFilter(kernel_size={self.kernel_size})"
 
+class SpatiallyVaryingGaussianUncertaintyBlur:
+    # Danke schön Mr. GPT
+
+    def __init__(self, kernel_size=7, depth_sigma_to_pixel_sigma=0.5):
+        """
+        kernel_size: size of the convolution to apply (must be ODD)
+        depth_sigma_to_pixel_sigma: ratio between the σ for depth values per pixel and σ for blurrying.
+        We only do a simple multiplication for now to keep things simple.
+        """
+        self.kernel_size = kernel_size
+        assert kernel_size % 2 == 1
+        self.radius = kernel_size // 2
+        self.grid = self._make_coord_grid(kernel_size)
+        self.depth_sigma_to_pixel_sigma = depth_sigma_to_pixel_sigma
+
+    def _make_coord_grid(self, k):
+        """Create a (k, k) coordinate grid centered at zero"""
+        coords = torch.arange(-k//2 + 1, k//2 + 1)
+        yy, xx = torch.meshgrid(coords, coords, indexing='ij')
+        grid = (xx**2 + yy**2).float()  # shape: (k, k)
+        return grid.unsqueeze(0).unsqueeze(0)  # shape: (1, 1, k, k)
+
+    def __call__(self, outputs, **kwargs):
+        std = kwargs.get("std")
+        assert std is not None, "Provide the `std` std deviation across heads to use this step"
+
+        B, C, H, W = outputs.shape
+        k = self.kernel_size
+        pad = self.radius
+
+        # Unfold input: (B, C*k*k, H*W)
+        patches = nn.functional.unfold(outputs, kernel_size=k, padding=pad)
+        patches = patches.view(B, C, k * k, H, W)
+
+        # Get local σ values: (B, 1, H, W). TODO: make this configurable.
+        sigma = (std * self.depth_sigma_to_pixel_sigma).clamp(min=1e-2)  # avoid divide by 0
+        sigma2 = sigma ** 2  # shape: (B, 1, H, W)
+
+        # Compute per-pixel Gaussian weights
+        grid = self.grid.to(outputs.device)
+        grid = grid.view(1, 1, -1, 1, 1)  # shape: (1, 1, k*k, 1, 1)
+
+        # Gaussian formula: exp(-r^2 / (2σ^2))
+        weights = torch.exp(-grid / (2 * sigma2.unsqueeze(2)))  # (B, 1, k*k, H, W)
+        weights = weights / weights.sum(dim=2, keepdim=True)  # normalize
+
+        # Apply weights to patches
+        filtered = (patches * weights).sum(dim=2)  # (B, C, H, W)
+
+        return filtered
+
+    def __str__(self):
+        return f"SpatiallyVaryingGaussianUncertaintyBlur(kernel_size={self.kernel_size})"
+
 
 class NormalizedStdInterpolation:
     def __call__(self, outputs, **kwargs):
@@ -155,6 +209,9 @@ def load_post_processor_from_config(config) -> PostProcessor:
         if "box_filter" in config["post_process"]:
             boxfilter_conf = config["post_process"]["box_filter"]
             p.add_step(BoxFilter(kernel_size=boxfilter_conf.get("kernel_size")))
+        if "gaussian_uncertainty_spatially_varying" in config["post_process"]:
+            gusv = config["post_process"]["gaussian_uncertainty_spatially_varying"]
+            p.add_step(SpatiallyVaryingGaussianUncertaintyBlur(kernel_size=gusv.get("kernel_size")))
 
         # Add interpolation after filtering steps :)
         if "normalized_std_interpolation" in config["post_process"]:
