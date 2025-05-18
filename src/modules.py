@@ -50,6 +50,8 @@ class SimpleUNet(nn.Module):
         self.heads = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(hidden_channels // 2, hidden_channels // 2, kernel_size=3, padding=1),
+                nn.BatchNorm2d(hidden_channels // 2),
+                nn.ReLU(),
                 nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
             ) for _ in range(num_heads)
         ])
@@ -355,6 +357,8 @@ class UNetWithDinoV2Backbone(nn.Module):
         self.heads = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(hidden_channels // 2, hidden_channels // 2, kernel_size=3, padding=1),
+                nn.BatchNorm2d(hidden_channels // 2),
+                nn.ReLU(),
                 nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
             ) for _ in range(num_heads)
         ])
