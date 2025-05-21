@@ -12,8 +12,34 @@ class BaseConfig:
         assert False, "Don't set values in code for a config you dingus"
 
 @dataclass
+class ResizeStepConfig(BaseConfig):
+    pass
+
+@dataclass
+class GuidedFilterStepConfig(BaseConfig):
+    radius: int = 3
+    epsilon: float = 1e-4
+
+@dataclass
+class GaussianBlurStepConfig(BaseConfig):
+    kernel_size: int = 5
+    sigma: float = 1.0
+
+@dataclass
+class BoxFilterStepConfig(BaseConfig):
+    kernel_size: int = 5
+
+@dataclass
+class NormalizedStdInterpolationConfig(BaseConfig):
+    pass
+
+@dataclass
 class PostProcessorConfig(BaseConfig):
-    fook: str = "dasf"
+    resize: Optional[ResizeStepConfig] = None
+    guided_filter: Optional[GuidedFilterStepConfig] = None
+    gaussian_blur: Optional[GaussianBlurStepConfig] = None
+    box_filter: Optional[BoxFilterStepConfig] = None
+    normalized_std_interpolation: Optional[NormalizedStdInterpolationConfig] = None
 
 @dataclass
 class ModelConfig(BaseConfig):
@@ -108,5 +134,5 @@ def load_config_from_yaml(config_path: str):
         return from_dict(Config, config)
 
 if __name__ == "__main__":
-    x = load_config_from_yaml("configs/depth_anything_post_process.yml")
-    print(x["model"])
+    x = load_config_from_yaml("configs/default.yml")
+    print(x["post_process"])

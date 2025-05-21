@@ -12,6 +12,7 @@ from tqdm import tqdm
 import yaml
 
 
+from config import Config
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet
 from data import DepthDataset
@@ -141,7 +142,7 @@ class NormalizedStdInterpolation:
 
     def __str__(self):
         return f"NormalizedStdInterpolation"
-    
+
 class SigmoidStdInterpolation:
     def __init__(self, scale=1.0, shift=-2.5):
         self.scale = scale
@@ -166,27 +167,24 @@ class SigmoidStdInterpolation:
     def __str__(self):
         return f"SigmoidStdInterpolation"
 
-def load_post_processor_from_config(config) -> PostProcessor:
+def load_post_processor_from_config(config: Config) -> PostProcessor:
     p = PostProcessor()
-    p.add_step(ResizeStep())
-    if "post_process" in config:
-        if "guided_filter" in config["post_process"]:
-            gfilter_conf = config["post_process"]["guided_filter"]
-            p.add_step(GuidedFilteringStep(gfilter_conf.get("r", 3), gfilter_conf.get("eps", 1e-3)))
-        if "gaussian_blur" in config["post_process"]:
-            gblur_conf = config["post_process"]["gaussian_blur"]
-            p.add_step(GaussianBlurStep(kernel_size=gblur_conf["kernel_size"], sigma=gblur_conf["sigma"]))
-        if "box_filter" in config["post_process"]:
-            boxfilter_conf = config["post_process"]["box_filter"]
-            p.add_step(BoxFilter(kernel_size=boxfilter_conf.get("kernel_size")))
-
-        # Add interpolation after filtering steps :)
-        if "normalized_std_interpolation" in config["post_process"]:
-            p.add_step(NormalizedStdInterpolation())
-        if "sigmoid_std_interpolation" in config["post_process"]:
-            p.add_step(SigmoidStdInterpolation(
-                scale=config["post_process"]["sigmoid_std_interpolation"].get("scale", 1.0),
-                shift=config["post_process"]["sigmoid_std_interpolation"].get("shift", -2.5)),
-            )
+    pconf = config.post_process
+    if pconf is None:
+        return p
+    if pconf.guided_filter:
+        p.add_step(GuidedFilteringStep(radius=pconf.guided_filter.radius, epsilon=pconf.guided_filter.epsilon))
+    if pconf.gaussian_blur:
+        p.add_step(GaussianBlurStep(kernel_size=pconf.gaussian_blur.kernel_size, sigma=pconf.gaussian_blur.sigma))
+    if pconf.box_filter:
+        p.add_step(BoxFilter(kernel_size=pconf.box_filter.kernel_size))
+    # Add interpolation after filtering steps :)
+    if pconf.normalized_std_interpolation:
+        p.add_step(NormalizedStdInterpolation())
+    if "sigmoid_std_interpolation" in config["post_process"]:
+        p.add_step(SigmoidStdInterpolation(
+            scale=config["post_process"]["sigmoid_std_interpolation"].get("scale", 1.0),
+            shift=config["post_process"]["sigmoid_std_interpolation"].get("shift", -2.5)),
+        )
 
     return p
