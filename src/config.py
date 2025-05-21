@@ -61,6 +61,9 @@ class ModelConfig(BaseConfig):
     include_pretrained_head: bool = False
     num_parameters: int = -1
 
+    depth_before_aggregate: True    # Whether to map the head outputs to metric depth before aggregating or after
+
+    # ONLY NEEDED DURING POST PROCESSING.
     wandb_artifact_fullname: str = "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
 @dataclass

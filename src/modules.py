@@ -15,28 +15,28 @@ class UNetBlock(nn.Module):
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        
+
         self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.bn3 = nn.BatchNorm2d(out_channels)
 
         self.relu = nn.ReLU(inplace=True)
-        
+
     def forward(self, x):
         x = self.relu(self.bn1(self.conv1(x)))
         x = self.relu(self.bn2(self.conv2(x)))
         x = self.relu(self.bn3(self.conv3(x)))
         return x
-    
+
 class SimpleUNet(nn.Module):
     def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):
         super(SimpleUNet, self).__init__()
         self.conv_transpose = conv_transpose
-        
+
         # Encoder blocks
         self.enc1 = UNetBlock(3, hidden_channels, dilation)
         self.enc2 = UNetBlock(hidden_channels, hidden_channels * 2, dilation)
         self.enc3 = UNetBlock(hidden_channels * 2, hidden_channels * 4, dilation)
-        
+
         # Decoder blocks
         self.upsample1 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 4, kernel_size=4, stride=2, padding=1)
         self.dec3 = UNetBlock(hidden_channels * 6, hidden_channels * 2, dilation)
@@ -45,7 +45,7 @@ class SimpleUNet(nn.Module):
         self.dec2 = UNetBlock(hidden_channels * 3, hidden_channels, dilation)
 
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
-        
+
         # Final heads that are combined for depth and uncertainty estimation
         self.heads = nn.ModuleList([
             nn.Sequential(
@@ -114,24 +114,24 @@ class SimpleUNet(nn.Module):
 
     def head_penalty(self):
         """
-        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        Calculates the penalty for the heads based on the distance from the initial parameters.
         """
         if len(self.heads) == 1:
             return torch.tensor(0.0, device=self.initial_head_params.device)
 
         head_params = self.get_head_params()
         return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
-            
+
     def forward(self, x):
         # Encoder
         enc1 = self.enc1(x)
         x = self.pool(enc1)
-        
+
         enc2 = self.enc2(x)
         x = self.pool(enc2)
 
         x = self.enc3(x)
-        
+
         # Decoder with skip connections
         if self.conv_transpose:
             x = self.upsample1(x)
@@ -142,11 +142,11 @@ class SimpleUNet(nn.Module):
 
         if self.conv_transpose:
             x = self.upsample2(x)
-            
+
         x = nn.functional.interpolate(x, size=enc1.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x, enc1], dim=1)
         x = self.dec2(x)
-        
+
         x = self.dec1(x)
 
         # Run inference through all heads
@@ -161,19 +161,19 @@ class SimpleUNet(nn.Module):
         # Output non-negative depth values
         if not self.depth_before_aggregate:
             x = torch.sigmoid(x) * 10
-        
+
         return x, std
-    
+
 class UncertaintyDepthAnything(nn.Module):
     """
     This class is a wrapper for the DepthAnything model that uses multiple heads to quantify the uncertainty of the depth estimation.
-    
+
     The code was written with the Hugging Face library as a base, modifying the original DepthAnything model to add the uncertainty quantification.
-    The base code was taken from: https://github.com/huggingface/transformers/blob/main/src/transformers/models/depth_anything/modeling_depth_anything.py 
+    The base code was taken from: https://github.com/huggingface/transformers/blob/main/src/transformers/models/depth_anything/modeling_depth_anything.py
     """
     def __init__(
-            self, 
-            num_heads: int = 1, 
+            self,
+            num_heads: int = 1,
             include_pretrained_head: bool = False,
             model_path: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",
             max_depth: float = 10.0,
@@ -196,10 +196,10 @@ class UncertaintyDepthAnything(nn.Module):
         self.neck.eval()
         for param in self.neck.parameters():
             param.requires_grad = False
-        
+
         # Setup custom heads
         self.num_heads = num_heads
-        self.config = self.model.config 
+        self.config = self.model.config
         if include_pretrained_head:
             # Use the pretrained head if requested
             self.heads = nn.ModuleList([self.model.head] + [DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads - 1)])
@@ -262,10 +262,10 @@ class UncertaintyDepthAnything(nn.Module):
                         p.view(-1) for p in head.parameters() if p.requires_grad
                     ], dim=0) for head in self.heads
                 ], dim=0)
-    
+
     def head_penalty(self):
         """
-        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        Calculates the penalty for the heads based on the distance from the initial parameters.
         """
         if len(self.heads) == 1:
             return torch.tensor(0.0, device=self.initial_head_params.device)
@@ -296,9 +296,9 @@ class UncertaintyDepthAnything(nn.Module):
 
             # Interpolate the output to the desired resolution
             outputs = F.interpolate(
-                outputs, 
-                size=output_resolution, 
-                mode='bilinear', 
+                outputs,
+                size=output_resolution,
+                mode='bilinear',
                 align_corners=False
             )
 
@@ -314,7 +314,7 @@ class UncertaintyDepthAnything(nn.Module):
             std = torch.zeros_like(x)
 
         return x, std
-    
+
 class UNetWithDinoV2Backbone(nn.Module):
     def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):
         super().__init__()
@@ -334,31 +334,31 @@ class UNetWithDinoV2Backbone(nn.Module):
         # Decoder blocks
         self.dec3 = UNetBlock(384, hidden_channels * 2, dilation)
         self.upsample3 = nn.ConvTranspose2d(
-            hidden_channels * 2, 
-            hidden_channels * 2, 
-            kernel_size=2 * self.upsampling_factor, 
-            stride=self.upsampling_factor, 
+            hidden_channels * 2,
+            hidden_channels * 2,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
             padding=self.upsampling_factor // 2
         )
 
         self.dec2 = UNetBlock(hidden_channels * 2, hidden_channels, dilation)
         self.upsample2 = nn.ConvTranspose2d(
-            hidden_channels, 
-            hidden_channels, 
-            kernel_size=2 * self.upsampling_factor, 
-            stride=self.upsampling_factor, 
+            hidden_channels,
+            hidden_channels,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
             padding=self.upsampling_factor // 2
         )
 
         self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
         self.upsample1 = nn.ConvTranspose2d(
-            hidden_channels // 2, 
-            hidden_channels // 2, 
-            kernel_size=2 * self.upsampling_factor, 
-            stride=self.upsampling_factor, 
+            hidden_channels // 2,
+            hidden_channels // 2,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
             padding=self.upsampling_factor // 2
         )
-        
+
         # Final heads that are combined for depth and uncertainty estimation
         self.heads = nn.ModuleList([
             nn.Sequential(
@@ -427,7 +427,7 @@ class UNetWithDinoV2Backbone(nn.Module):
 
     def head_penalty(self):
         """
-        Calculates the penalty for the heads based on the distance from the initial parameters. 
+        Calculates the penalty for the heads based on the distance from the initial parameters.
         """
         if len(self.heads) == 1:
             return torch.tensor(0.0, device=self.initial_head_params.device)
@@ -437,7 +437,7 @@ class UNetWithDinoV2Backbone(nn.Module):
 
 
     def forward(self, x):
-        images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x] 
+        images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x]
         inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
 
         with torch.no_grad():
@@ -486,5 +486,5 @@ class UNetWithDinoV2Backbone(nn.Module):
         # Output non-negative depth values
         if not self.depth_before_aggregate:
             out = torch.sigmoid(out) * 10
-        
+
         return out, std
