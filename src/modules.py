@@ -28,7 +28,7 @@ class UNetBlock(nn.Module):
         return x
     
 class SimpleUNet(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True, weight_initialization="glorot"):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):
         super(SimpleUNet, self).__init__()
         self.conv_transpose = conv_transpose
         
@@ -65,6 +65,8 @@ class SimpleUNet(nn.Module):
         # Pooling and upsampling
         self.pool = nn.MaxPool2d(2)
 
+        self.depth_before_aggregate = depth_before_aggregate
+
     def initialize_weights(self, method):
         """
         Initialize the weights of the model, excluding the backbone.
@@ -74,7 +76,7 @@ class SimpleUNet(nn.Module):
         elif method == "glorot":
             modules_to_initialize = [
                 self.enc1, self.enc2, self.enc3,
-                self.dec3, self.upsample3,
+                self.dec3,
                 self.dec2, self.upsample2,
                 self.dec1, self.upsample1,
                 self.heads
@@ -150,11 +152,15 @@ class SimpleUNet(nn.Module):
         # Run inference through all heads
         x = torch.stack([head(x) for head in self.heads], dim=1)
 
+        if self.depth_before_aggregate:
+            x = torch.sigmoid(x) * 10
+
         std = x.std(dim=1)
         x = x.mean(dim=1)
 
         # Output non-negative depth values
-        x = torch.sigmoid(x) * 10
+        if not self.depth_before_aggregate:
+            x = torch.sigmoid(x) * 10
         
         return x, std
     
@@ -310,7 +316,7 @@ class UncertaintyDepthAnything(nn.Module):
         return x, std
     
 class UNetWithDinoV2Backbone(nn.Module):
-    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot"):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):
         super().__init__()
         self.image_size = image_size
         self.conv_transpose = conv_transpose
@@ -371,6 +377,8 @@ class UNetWithDinoV2Backbone(nn.Module):
 
         # Pooling and upsampling
         self.pool = nn.MaxPool2d(2)
+
+        self.depth_before_aggregate = depth_before_aggregate
 
     def initialize_weights(self, method):
         """
@@ -469,10 +477,14 @@ class UNetWithDinoV2Backbone(nn.Module):
         # Run inference through all heads
         out = torch.stack([head(out) for head in self.heads], dim=1)
 
+        if self.depth_before_aggregate:
+            out = torch.sigmoid(out) * 10
+
         std = out.std(dim=1)
         out = out.mean(dim=1)
 
         # Output non-negative depth values
-        out = torch.sigmoid(out) * 10
+        if not self.depth_before_aggregate:
+            out = torch.sigmoid(out) * 10
         
         return out, std

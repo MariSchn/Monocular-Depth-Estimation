@@ -223,12 +223,13 @@ def evaluate_model(model, val_loader, device, output_dir):
                 )
 
                 # Save predictions into temp_dir
-                for i in range(batch_size):
-                    filename = filenames[i]
-                    depth_pred = outputs[i].cpu().squeeze().numpy()
+                if config["logging"]["upload_to_wandb"]:
+                    for i in range(batch_size):
+                        filename = filenames[i]
+                        depth_pred = outputs[i].cpu().squeeze().numpy()
 
-                    # Save depth map prediction as numpy array
-                    np.save(os.path.join(temp_dir, f"{filename}"), depth_pred)
+                        # Save depth map prediction as numpy array
+                        np.save(os.path.join(temp_dir, f"{filename}"), depth_pred)
 
                 # Calculate metrics
                 abs_diff = torch.abs(outputs - targets)
@@ -524,6 +525,7 @@ if __name__ == "__main__":
             num_heads=config["model"]["num_heads"], 
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(
@@ -537,6 +539,7 @@ if __name__ == "__main__":
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
