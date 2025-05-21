@@ -30,6 +30,11 @@ data:
   num_workers: 2         # How many workers to use for parallel data loading
   pin_memory: true
 
+post_process:
+  resize: {}
+  gaussian_blur:
+    sigma: 2
+
 logging:
   log: true                       # Whether to log the training or not (Useful for debugging to not create a new run every time)
   log_images: true                # Whether to log a comparison figure between predictions and ground truth (at both epoch- and step-level)

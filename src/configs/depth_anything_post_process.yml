@@ -37,7 +37,7 @@ data:
   pin_memory: true
 
 logging:
-  log: true                       # Whether to log the training or not (Useful for debugging to not create a new run every time)
+  log: false                       # Whether to log the training or not (Useful for debugging to not create a new run every time)
   log_images: true                # Whether to log a comparison figure between predictions and ground truth (at both epoch- and step-level)
   val_every_step_log: true        # Whether to run on validation set at every step-level log
   log_every_k_epochs: 1           # How frequent to perform epoch-level logging (set to -1 to disable)

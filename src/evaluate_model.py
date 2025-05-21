@@ -14,6 +14,7 @@ from transformers import AutoImageProcessor
 import torchvision.transforms as T
 
 
+from config import load_config_from_yaml
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
 from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
 from data import DepthDataset
@@ -189,9 +190,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load config file
-    config = load_config(args.config)
+    config = load_config_from_yaml(args.config)
 
-    wandb_artifact_fullname = config["model"].get("wandb_artifact_fullname")
+    wandb_artifact_fullname = config.model.wandb_artifact_fullname
     assert wandb_artifact_fullname is not None, "Specify `config.wandb_artifact_fullname` to tell this script what to download."
 
     eval_results_dir = os.path.join(config["output_dir"], f"{config['logging']['run_name']}_eval_results")
