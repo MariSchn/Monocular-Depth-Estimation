@@ -20,7 +20,7 @@ model:
 
   conv_transpose: true # Whether to use conv transpose layers in the decoder
   weight_initialization: "glorot" # The weight initialization method to use. ["glorot", "default"]
-  
+
   num_heads: 8
   include_pretrained_head: false
   depth_before_aggregate: true    # Whether to map the head outputs to metric depth before aggregating or after

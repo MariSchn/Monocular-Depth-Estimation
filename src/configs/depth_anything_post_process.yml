@@ -24,7 +24,9 @@ model:
 
   wandb_artifact_fullname: "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
-post_process: {}
+# post_process: {}
+post_process:
+  e: f
   # gaussian_blur:
   #   kernel_size: 7
   #   sigma: 2

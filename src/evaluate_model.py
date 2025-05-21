@@ -21,6 +21,7 @@ from train import generate_test_predictions
 from post_process import PostProcessor, load_post_processor_from_config
 from guided_filter_pytorch.guided_filter import GuidedFilter
 
+
 def evaluate_model_with_postprocess(model, post_processor, val_loader, device, output_dir):
     """Evaluate the model and compute metrics on validation set, with post-process pipeline."""
     model.eval()

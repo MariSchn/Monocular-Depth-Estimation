@@ -3,13 +3,24 @@ from typing import List, Optional, get_origin, get_args, Union
 
 import yaml
 
-@dataclass
-class ModelConfig:
-    type: str = "depth_anything"
 
 @dataclass
 class PostProcessorConfig:
     fook: str = "dasf"
+
+@dataclass
+class ModelConfig:
+    type: str = "u_net"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
+    hidden_channels: int = 32
+    dilation: int = 1
+
+    conv_transpose: bool = True # Whether to use conv transpose layers in the decoder
+    weight_initialization: str = "glorot" # The weight initialization method to use. ["glorot", "default"]
+
+    num_heads: int = 16
+    include_pretrained_head: bool = False
+
+    wandb_artifact_fullname: str = "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
 @dataclass
 class TrainConfig:
@@ -23,6 +34,7 @@ class TrainConfig:
 
 @dataclass
 class DataConfig:
+    input_size: List[int] = field(default_factory=lambda: [426, 560]) # Size of the input images (height, width).
     num_workers: int = 2         # How many workers to use for parallel data loading
     pin_memory: bool = True
 
