@@ -17,6 +17,8 @@ from utils import *
 from modules import SimpleUNet, UncertaintyDepthAnything, UNetWithDinoV2Backbone
 from data import DepthDataset
 from create_prediction_csv import process_depth_maps
+from config import Config, load_config_from_yaml
+from dataclasses import asdict
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, output_dir):
@@ -392,7 +394,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load config file
-    config = load_config(args.config)
+    # config = load_config(args)
+    config = load_config_from_yaml(args.config)
 
     # Define paths
     train_data_dir = os.path.join(config["data_dir"], "train")
@@ -433,7 +436,7 @@ if __name__ == "__main__":
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-        
+
         test_transform = transforms.Compose([
             transforms.Resize((426, 560)),
             transforms.ToTensor(),
@@ -520,22 +523,22 @@ if __name__ == "__main__":
 
     if config["model"]["type"] == "u_net":
         model = SimpleUNet(
-            hidden_channels=config["model"]["hidden_channels"], 
-            dilation=config["model"]["dilation"], 
-            num_heads=config["model"]["num_heads"], 
+            hidden_channels=config["model"]["hidden_channels"],
+            dilation=config["model"]["dilation"],
+            num_heads=config["model"]["num_heads"],
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
             depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(
-            num_heads=config["model"]["num_heads"], 
+            num_heads=config["model"]["num_heads"],
             include_pretrained_head=config["model"]["include_pretrained_head"],
             weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
         model = UNetWithDinoV2Backbone(
-            num_heads=config["model"]["num_heads"], 
+            num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
@@ -543,7 +546,7 @@ if __name__ == "__main__":
         )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
-    
+
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
@@ -557,14 +560,12 @@ if __name__ == "__main__":
     optimizer = optim.AdamW(model.parameters(), lr=config["train"]["learning_rate"], weight_decay=config["train"]["weight_decay"])
 
     # Initialize Weights and Biases for logging
-    config.update({
-        "num_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad)
-    })
+    config.model.num_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     wandb.init(
         entity=config["logging"]["entity"],
         project=config["logging"]["project_name"],
         name=config['logging']["run_name"],
-        config=config,
+        config=asdict(config),
         mode="online" if config["logging"]["log"] else "disabled",
         save_code=True,
     )

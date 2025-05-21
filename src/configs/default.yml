@@ -14,7 +14,7 @@ train:
   head_penalty_weight: [1, 0]  # Weight is scheduled from first value to second value over the course of training
 
 model:
-  type: "u_net"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
+  type: "depth_anything"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
   hidden_channels: 32
   dilation: 1
 

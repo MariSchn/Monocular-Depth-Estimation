@@ -17,7 +17,7 @@ class PostProcessorConfig(BaseConfig):
 
 @dataclass
 class ModelConfig(BaseConfig):
-    type: str = "u_net"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
+    type: str = "depth_anything"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
     hidden_channels: int = 32
     dilation: int = 1
 
@@ -26,6 +26,7 @@ class ModelConfig(BaseConfig):
 
     num_heads: int = 16
     include_pretrained_head: bool = False
+    num_parameters: int = -1
 
     wandb_artifact_fullname: str = "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
@@ -68,6 +69,7 @@ class Config(BaseConfig):
 
     train: TrainConfig = field(default_factory=TrainConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    data: DataConfig = field(default_factory=DataConfig)
     post_process: Optional[PostProcessorConfig] = None
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
