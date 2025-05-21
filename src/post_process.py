@@ -181,10 +181,11 @@ def load_post_processor_from_config(config: Config) -> PostProcessor:
     # Add interpolation after filtering steps :)
     if pconf.normalized_std_interpolation:
         p.add_step(NormalizedStdInterpolation())
-    if "sigmoid_std_interpolation" in config["post_process"]:
-        p.add_step(SigmoidStdInterpolation(
-            scale=config["post_process"]["sigmoid_std_interpolation"].get("scale", 1.0),
-            shift=config["post_process"]["sigmoid_std_interpolation"].get("shift", -2.5)),
+    if pconf.sigmoid_std_interpolation:
+        p.add_step(
+            SigmoidStdInterpolation(
+                scale=pconf.sigmoid_std_interpolation.scale,
+                shift=pconf.sigmoid_std_interpolation.shift,
+            )
         )
-
     return p

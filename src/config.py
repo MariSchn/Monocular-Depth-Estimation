@@ -34,12 +34,19 @@ class NormalizedStdInterpolationConfig(BaseConfig):
     pass
 
 @dataclass
+class SigmoidStdInterpolationConfig(BaseConfig):
+    # Adjust the following parameters based on the uncertainty domain we are working with.
+    scale: float = 1.0  # how to scale the inputs to narrow or widen the sigmoid
+    shift: float = -2.5  # how to shift the sigmoid curve :)
+
+@dataclass
 class PostProcessorConfig(BaseConfig):
     resize: Optional[ResizeStepConfig] = None
     guided_filter: Optional[GuidedFilterStepConfig] = None
     gaussian_blur: Optional[GaussianBlurStepConfig] = None
     box_filter: Optional[BoxFilterStepConfig] = None
     normalized_std_interpolation: Optional[NormalizedStdInterpolationConfig] = None
+    sigmoid_std_interpolation: Optional[SigmoidStdInterpolationConfig] = None
 
 @dataclass
 class ModelConfig(BaseConfig):
