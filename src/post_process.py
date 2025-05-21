@@ -141,6 +141,30 @@ class NormalizedStdInterpolation:
 
     def __str__(self):
         return f"NormalizedStdInterpolation"
+    
+class SigmoidStdInterpolation:
+    def __init__(self, scale=1.0, shift=-2.5):
+        self.scale = scale
+        self.shift = shift
+
+    def __call__(self, outputs, **kwargs):
+        raw_outputs = kwargs.get("raw_outputs")
+        assert raw_outputs is not None, "Provide the `raw_outputs` original predictions to use this step"
+        std = kwargs.get("std")
+        assert std is not None, "Provide the `std` std deviation across heads to use this step"
+        normalized_std = std.clone()
+
+        normalized_std = torch.sigmoid(self.scale * (normalized_std + self.shift))
+
+        # Combine the processed output with the raw output.
+        outputs = (1 - normalized_std) * outputs + normalized_std * raw_outputs
+
+        del normalized_std
+
+        return outputs
+
+    def __str__(self):
+        return f"SigmoidStdInterpolation"
 
 def load_post_processor_from_config(config) -> PostProcessor:
     p = PostProcessor()
@@ -159,5 +183,10 @@ def load_post_processor_from_config(config) -> PostProcessor:
         # Add interpolation after filtering steps :)
         if "normalized_std_interpolation" in config["post_process"]:
             p.add_step(NormalizedStdInterpolation())
+        if "sigmoid_std_interpolation" in config["post_process"]:
+            p.add_step(SigmoidStdInterpolation(
+                scale=config["post_process"]["sigmoid_std_interpolation"].get("scale", 1.0),
+                shift=config["post_process"]["sigmoid_std_interpolation"].get("shift", -2.5)),
+            )
 
     return p

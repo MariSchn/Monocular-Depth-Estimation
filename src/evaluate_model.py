@@ -233,21 +233,26 @@ if __name__ == "__main__":
     # V5 model has 16 heads :)
     if config["model"]["type"] == "u_net":
         model = SimpleUNet(
-            hidden_channels=config["model"]["hidden_channels"],
-            dilation=config["model"]["dilation"],
-            num_heads=config["model"]["num_heads"],
-            conv_transpose=config["model"]["conv_transpose"]
+            hidden_channels=config["model"]["hidden_channels"], 
+            dilation=config["model"]["dilation"], 
+            num_heads=config["model"]["num_heads"], 
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(
-            num_heads=config["model"]["num_heads"],
-            include_pretrained_head=config["model"]["include_pretrained_head"]
+            num_heads=config["model"]["num_heads"], 
+            include_pretrained_head=config["model"]["include_pretrained_head"],
+            weight_initialization=config["vmodel"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
         model = UNetWithDinoV2Backbone(
-            num_heads=config["model"]["num_heads"],
+            num_heads=config["model"]["num_heads"], 
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
-            conv_transpose=config["model"]["conv_transpose"]
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
