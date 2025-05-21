@@ -1,15 +1,22 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, get_origin, get_args, Union
+from typing import List, Optional, get_origin, get_args, Union, Any
 
 import yaml
 
+class BaseConfig:
+    def __getitem__(self, key: str) -> Any:
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(f"{key} is not a valid config field.")
+    def __setitem__(self, key: str) -> Any:
+        assert False, "Don't set values in code for a config you dingus"
 
 @dataclass
-class PostProcessorConfig:
+class PostProcessorConfig(BaseConfig):
     fook: str = "dasf"
 
 @dataclass
-class ModelConfig:
+class ModelConfig(BaseConfig):
     type: str = "u_net"  # The type of model to use. ["u_net", "depth_anything", "dinov2_backboned_unet"]
     hidden_channels: int = 32
     dilation: int = 1
@@ -23,7 +30,7 @@ class ModelConfig:
     wandb_artifact_fullname: str = "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
 
 @dataclass
-class TrainConfig:
+class TrainConfig(BaseConfig):
     num_epochs: int = 15
     batch_size: int = 8
     learning_rate: float = 0.001
@@ -33,13 +40,13 @@ class TrainConfig:
     head_penalty_weight: List[int] = field(default_factory=lambda: [1, 0])  # Weight is scheduled from first value to second value over the course of training
 
 @dataclass
-class DataConfig:
+class DataConfig(BaseConfig):
     input_size: List[int] = field(default_factory=lambda: [426, 560]) # Size of the input images (height, width).
     num_workers: int = 2         # How many workers to use for parallel data loading
     pin_memory: bool = True
 
 @dataclass
-class LoggingConfig:
+class LoggingConfig(BaseConfig):
     log: bool = True                       # Whether to log the training or not (Useful for debugging to not create a new run every time)
     log_images: bool = True                # Whether to log a comparison figure between predictions and ground truth (at both epoch- and step-level)
     val_every_step_log: bool = True        # Whether to run on validation set at every step-level log
@@ -52,14 +59,14 @@ class LoggingConfig:
 
 
 @dataclass
-class Config:
+class Config(BaseConfig):
     device: str = "cuda" # or "cpu"
     seed: int = 0
 
     data_dir: str = "/cluster/courses/cil/monocular_depth/data"
     output_dir: str = "./output" # "/work/scratch/smarian/output"  # Replace with your username if you want to save the output to scratch to avoid quota issues
 
-    train: Optional[TrainConfig] = None
+    train: TrainConfig = field(default_factory=TrainConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     post_process: Optional[PostProcessorConfig] = None
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -87,7 +94,8 @@ def from_dict(cls, data):
                 non_none_args = [arg for arg in args if arg is not type(None)]
                 if len(non_none_args) == 1:
                     field_type = non_none_args[0]
-
+            if is_dataclass(field_type):
+                assert hasattr(field_type, "__getitem__"), "Make sure your config inherits from BaseConfig"
             kwargs[key] = from_dict(field_type, val)
     return cls(**kwargs)
 
@@ -99,4 +107,4 @@ def load_config_from_yaml(config_path: str):
 
 if __name__ == "__main__":
     x = load_config_from_yaml("configs/depth_anything_post_process.yml")
-    print(x)
+    print(x["model"])
