@@ -7,7 +7,7 @@ from copy import deepcopy
 # Post-processing parameter grid
 POST_PROCESS_GRID = {
     "guided_filter": {
-        "r": [2, 3, 5],
+        "r": [2, 8, 16],
         "eps": [1e-2, 1e-3, 1e-4]
     },
     "gaussian_blur": {
@@ -49,9 +49,9 @@ MODEL_PRESETS = {
         "dilation": 1,
         "conv_transpose": True,
         "weight_initialization": "glorot",
-        "num_heads": 8,
+        "num_heads": 4,
         "include_pretrained_head": False,
-        "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v7",
+        "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
     }
 }
 
@@ -106,7 +106,7 @@ def main():
         for param_combo in get_param_combinations(param_grid):
             config = deepcopy(base_config)
             config["model"] = deepcopy(model_config)
-            config["logging"]["run_name"] = f"{method}_model_{args.model}_id_{config_id}"
+            config["logging"]["run_name"] = f"FineTune/id_{config_id}_{method}_model_{args.model}"
             config["post_process"] = {method: param_combo}
 
             output_path = os.path.join(args.output_dir, f"postprocess_config_{config_id}.yml")

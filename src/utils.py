@@ -251,3 +251,123 @@ def create_uncertainty_visualization(model: torch.nn.Module, train_image: torch.
     plt.close(fig)
 
     return image
+
+def create_depth_comparison_postprocess(model: torch.nn.Module, post_processor, image: torch.Tensor, gt: torch.Tensor, device: str) -> np.ndarray:
+    model.eval()
+
+    if image.ndim == 3:
+        image = image.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        # Forward pass through the model
+        pred, std = model(image)
+    
+    target_shape = gt.shape
+
+    # Perform post-processing.
+    outputs = post_processor(
+        pred.clone(),
+        inputs=image,
+        resize_to=target_shape[-2:],
+        raw_outputs=pred.clone(),
+        std=std,
+    )
+
+    pred = nn.functional.interpolate(
+        pred,
+        size=(426, 560),  # Original input dimensions
+        mode='bilinear',
+        align_corners=True
+    )
+    outputs = nn.functional.interpolate(
+        outputs,
+        size=(426, 560),  # Original input dimensions
+        mode='bilinear',
+        align_corners=True
+    )
+
+    # Convert tensors to numpy arrays for visualization
+    pred = pred.squeeze().cpu().numpy()
+    outputs = outputs.squeeze().cpu().numpy()
+
+    min_depth = gt.min()
+    max_depth = gt.max()
+
+    # Create the figure
+    fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+    axs[0].imshow(pred, cmap='plasma', vmin=min_depth, vmax=max_depth)
+    axs[0].set_title('Predicted Depth')
+
+    axs[0].axis('off')
+    axs[1].imshow(outputs, cmap='plasma', vmin=min_depth, vmax=max_depth)
+    axs[1].set_title('Postprocess Depth')
+    axs[1].axis('off')
+
+    # Render the figure into a numpy array
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buffer = fig.canvas.tostring_argb()
+    image = np.frombuffer(buffer, dtype=np.uint8)
+    image.shape = (h, w, 4) 
+    image = image[:, :, 1:4]
+
+    plt.close(fig)
+
+    return image
+
+def create_depth_postprocess_gt_comparison(model: torch.nn.Module, post_processor, image: torch.Tensor, gt: torch.Tensor, device: str) -> np.ndarray:
+    model.eval()
+
+    if image.ndim == 3:
+        image = image.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        # Forward pass through the model
+        pred, std = model(image)
+
+    # Perform post-processing.
+    outputs = post_processor(
+        pred,
+        inputs=image,
+        resize_to=gt.shape[-2:],
+        raw_outputs=pred,
+        std=std,
+    )
+
+    outputs = nn.functional.interpolate(
+        outputs,
+        size=(426, 560),  # Original input dimensions
+        mode='bilinear',
+        align_corners=True
+    )
+
+    # Convert tensors to numpy arrays for visualization
+    outputs = outputs.squeeze().cpu().numpy()
+    gt = gt.squeeze().cpu().numpy()
+
+    min_depth = gt.min()
+    max_depth = gt.max()
+    
+    # Create the figure
+    fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+    axs[0].imshow(outputs, cmap='plasma', vmin=min_depth, vmax=max_depth)
+    axs[0].set_title('Postprocessed Depth')
+
+    axs[0].axis('off')
+    axs[1].imshow(gt, cmap='plasma', vmin=min_depth, vmax=max_depth)
+    axs[1].set_title('Ground Truth Depth')
+    axs[1].axis('off')
+
+    # Render the figure into a numpy array
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buffer = fig.canvas.tostring_argb()
+    image = np.frombuffer(buffer, dtype=np.uint8)
+    image.shape = (h, w, 4) 
+    image = image[:, :, 1:4]
+
+    plt.close(fig)
+
+    return image
