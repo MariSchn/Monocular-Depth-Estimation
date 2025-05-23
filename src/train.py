@@ -1,3 +1,4 @@
+import hashlib
 import os
 import argparse
 import wandb
@@ -5,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 import matplotlib.pyplot as plt
 import tempfile
@@ -20,6 +21,7 @@ from create_prediction_csv import process_depth_maps
 from config import Config, load_config_from_yaml
 from dataclasses import asdict
 
+VALIDATION_DATASET_HASH_FILE_NAME = "val_dataset_indices_hash.txt"
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, output_dir):
     """Train the model and save the best based on validation metrics"""
@@ -181,6 +183,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         if config["logging"]["upload_to_wandb"]:
             best_model_artifact = wandb.Artifact(name="best_model", type="model", description=f"Best model at epoch {best_epoch+1}")
             best_model_artifact.add_file(os.path.join(output_dir, 'best_model.pth'), name="best_model.pth")
+            best_model_artifact.add_file(os.path.join(output_dir, VALIDATION_DATASET_HASH_FILE_NAME), name=VALIDATION_DATASET_HASH_FILE_NAME)
             wandb.log_artifact(best_model_artifact, aliases=[config["logging"]["run_name"].replace(" ", "_").replace("/", "").replace(":", "").lower()])
 
         # Load the best model
@@ -470,8 +473,15 @@ if __name__ == "__main__":
     torch.manual_seed(config["seed"])
 
     train_dataset, val_dataset = torch.utils.data.random_split(
-        train_full_dataset, [train_size, val_size]
+        train_full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(config["seed"])
     )
+    val_indices = val_dataset.indices
+    val_hash = hashlib.sha256(torch.tensor(val_indices).numpy().tobytes()).hexdigest()
+    print(f"Validation indices hash: {val_hash}")
+    # Save the hash to a text file so we can recover it later.
+    hash_path = os.path.join(results_dir, VALIDATION_DATASET_HASH_FILE_NAME)
+    with open(hash_path, "w") as f:
+        f.write(val_hash)
 
     # Get images to be used as visualizations duringn logging
     train_log_rgb, train_log_depth, _ = train_dataset[0]

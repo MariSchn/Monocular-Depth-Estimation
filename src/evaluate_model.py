@@ -1,3 +1,4 @@
+import hashlib
 import os
 import argparse
 import wandb
@@ -235,22 +236,22 @@ if __name__ == "__main__":
     # V5 model has 16 heads :)
     if config["model"]["type"] == "u_net":
         model = SimpleUNet(
-            hidden_channels=config["model"]["hidden_channels"], 
-            dilation=config["model"]["dilation"], 
-            num_heads=config["model"]["num_heads"], 
+            hidden_channels=config["model"]["hidden_channels"],
+            dilation=config["model"]["dilation"],
+            num_heads=config["model"]["num_heads"],
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
             depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
     elif config["model"]["type"] == "depth_anything":
         model = UncertaintyDepthAnything(
-            num_heads=config["model"]["num_heads"], 
+            num_heads=config["model"]["num_heads"],
             include_pretrained_head=config["model"]["include_pretrained_head"],
-            weight_initialization=config["vmodel"]["weight_initialization"],
+            weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
         model = UNetWithDinoV2Backbone(
-            num_heads=config["model"]["num_heads"], 
+            num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],
             weight_initialization=config["model"]["weight_initialization"],
@@ -335,8 +336,23 @@ if __name__ == "__main__":
     torch.manual_seed(config["seed"])
 
     train_dataset, val_dataset = torch.utils.data.random_split(
-        train_full_dataset, [train_size, val_size]
+        train_full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(config["seed"])
     )
+    val_indices = val_dataset.indices
+    val_hash = hashlib.sha256(torch.tensor(val_indices).numpy().tobytes()).hexdigest()
+    print(f"Validation indices hash: {val_hash}")
+
+    # Please do not comment this out unless you have a good reason to.
+    # Models trained after Friday May 23 should upload a hash of the val dataset indices
+    # to WandB. We verify it here to make sure we are evaluating
+    # the model on the same validation set.
+    # Moels will likely be better on data that they are trained on :)
+    with open(os.path.join(model_artifact_dir, "val_dataset_indices_hash.txt")) as f:
+        speal = """Hash of validation dataset indices not the same!
+        This is bad for evaluation because the model may be evaluated on data it trained on.
+        Indices might be out of order. Check the val dataset and the random seed."
+        """
+        assert val_hash == f.read().strip(), speal
 
     # Get images to be used as visualizations duringn logging
     train_log_rgb, train_log_depth, _ = train_dataset[0]
