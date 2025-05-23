@@ -84,10 +84,12 @@ class GuidedFilteringStep:
         )
 
         # Use the original RGB inputs as a guide to perform smoothing.
-        filtered = self.filter(outputs, resized_inputs)
+        # filtered = self.filter(outputs, resized_inputs)
+        guide_gray = resized_inputs.mean(dim=1, keepdim=True)
+        filtered = self.filter(guide_gray, outputs)
 
         # Since the guide image is a color image, we may replicate the smoothed depth across the 3 channels.
-        filtered = filtered.mean(dim=1, keepdim=True)
+        # filtered = filtered.mean(dim=1, keepdim=True)
 
         return filtered
 
