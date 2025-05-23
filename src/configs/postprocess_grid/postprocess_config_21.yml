@@ -1,0 +1,33 @@
+data:
+  input_size:
+  - 426
+  - 560
+  num_workers: 2
+  pin_memory: true
+data_dir: /cluster/courses/cil/monocular_depth/data
+device: cuda
+logging:
+  entity: MonocularDepthEstimation
+  log: true
+  log_every_k_epochs: 1
+  log_every_k_steps: -1
+  log_images: true
+  project_name: MonocularDepthEstimation
+  run_name: normalized_std_interpolation_model_depth_anything_id_21
+  upload_to_wandb: true
+  val_every_step_log: true
+model:
+  conv_transpose: true
+  dilation: 1
+  hidden_channels: 32
+  include_pretrained_head: true
+  num_heads: 16
+  type: depth_anything
+  wandb_artifact_fullname: MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5
+  weight_initialization: default
+output_dir: ./output
+post_process:
+  normalized_std_interpolation: {}
+seed: 0
+train:
+  batch_size: 8
