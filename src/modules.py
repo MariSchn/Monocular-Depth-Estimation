@@ -198,6 +198,7 @@ class UncertaintyDepthAnything(nn.Module):
             param.requires_grad = False
 
         # Setup custom heads
+        self.include_pretrained_head = include_pretrained_head
         self.num_heads = num_heads
         self.config = self.model.config
         if include_pretrained_head:
@@ -227,10 +228,12 @@ class UncertaintyDepthAnything(nn.Module):
         """
         if method == "default":
             return
+        elif self.include_pretrained_head and self.num_heads == 1:
+            return
         elif method == "glorot":
             print("Using Glorot initialization")
             modules_to_initialize = [
-                self.heads
+                self.heads if not self.include_pretrained_head else [self.heads[1:]],
             ]
             for module_group in modules_to_initialize:
                 for m in module_group.modules():
