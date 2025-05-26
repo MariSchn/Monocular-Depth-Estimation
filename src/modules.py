@@ -278,18 +278,18 @@ class UncertaintyDepthAnything(nn.Module):
 
     def forward(self, x, output_resolution=(426, 560)) -> torch.FloatTensor:
         # Get hidden_states, unfortunately this can not be done as precomputation due to storage quota
-        with torch.no_grad():
-            # Forward pass through the backbone
-            outputs = self.backbone.forward_with_filtered_kwargs(x)
-            hidden_states = outputs.feature_maps
+        # WE ALREADY HAVE requires_grad = False on the backbone and neck, so they should not receive updates.
+        # Forward pass through the backbone
+        outputs = self.backbone.forward_with_filtered_kwargs(x)
+        hidden_states = outputs.feature_maps
 
-            # Forward pass through the neck
-            _, _, height, width = x.shape
-            patch_size = self.config.patch_size
-            patch_height = height // patch_size
-            patch_width = width // patch_size
+        # Forward pass through the neck
+        _, _, height, width = x.shape
+        patch_size = self.config.patch_size
+        patch_height = height // patch_size
+        patch_width = width // patch_size
 
-            hidden_states = self.neck(hidden_states, patch_height, patch_width)
+        hidden_states = self.neck(hidden_states, patch_height, patch_width)
 
         # Forward pass through the heads
         predictions = []
