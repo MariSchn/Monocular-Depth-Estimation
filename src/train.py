@@ -15,7 +15,7 @@ from tqdm import tqdm
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, AutoModel
 
 from utils import *
-from modules import SimpleUNet, UncertaintyDepthAnything, UNetWithDinoV2Backbone
+from modules import DiUNet, SimpleUNet, UncertaintyDepthAnything, UNetWithDinoV2Backbone
 from data import DepthDataset
 from create_prediction_csv import process_depth_maps
 from config import Config, load_config_from_yaml
@@ -431,7 +431,7 @@ if __name__ == "__main__":
     elif config["model"]["type"] == "depth_anything":
         train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
         test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
-    elif config["model"]["type"] == "dinov2_backboned_unet":
+    elif config["model"]["type"] == "dinov2_backboned_unet" or config["model"]["type"] == "diunet":
         train_transform = transforms.Compose([
             transforms.Resize((426, 560)),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
@@ -548,6 +548,14 @@ if __name__ == "__main__":
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
         model = UNetWithDinoV2Backbone(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
+    elif config["model"]["type"] == "diunet":
+        model = DiUNet(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],

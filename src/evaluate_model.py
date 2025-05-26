@@ -17,7 +17,7 @@ import torchvision.transforms as T
 
 from config import load_config_from_yaml
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
+from modules import DiUNet, SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
 from post_process import PostProcessor, load_post_processor_from_config
@@ -257,6 +257,14 @@ if __name__ == "__main__":
             weight_initialization=config["model"]["weight_initialization"],
             depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
+    elif config["model"]["type"] == "diunet":
+        model = DiUNet(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
     else:
         raise ValueError(f"Unknown model type: {config['model']['type']}")
 
@@ -295,7 +303,7 @@ if __name__ == "__main__":
     elif config["model"]["type"] == "depth_anything":
         train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
         test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
-    elif config["model"]["type"] == "dinov2_backboned_unet":
+    elif config["model"]["type"] == "dinov2_backboned_unet" or config["model"]["type"] == "diunet":
         train_transform = transforms.Compose([
             transforms.Resize((426, 560)),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
