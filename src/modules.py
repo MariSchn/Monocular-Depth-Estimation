@@ -324,28 +324,39 @@ class UNetWithDinoV2Backbone(nn.Module):
         self.image_size = image_size
         self.conv_transpose = conv_transpose
 
-        self.upsampling_amount = 3
+        self.upsampling_amount = 4
         self.upsampling_factor = 2
 
-        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-small')
-        self.backbone = AutoModel.from_pretrained('facebook/dinov2-small')
+        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-large')
+        self.backbone = AutoModel.from_pretrained('facebook/dinov2-large')
+
+        self.channel_dim = self.backbone.config.hidden_size
 
         self.backbone.eval()
         for param in self.backbone.parameters():
             param.requires_grad = False
 
         # Decoder blocks
-        self.dec3 = UNetBlock(384, hidden_channels * 2, dilation)
+        self.dec3 = UNetBlock(self.channel_dim, hidden_channels * 8, dilation)
         self.upsample3 = nn.ConvTranspose2d(
-            hidden_channels * 2,
-            hidden_channels * 2,
+            hidden_channels * 8,
+            hidden_channels * 8,
             kernel_size=2 * self.upsampling_factor,
             stride=self.upsampling_factor,
             padding=self.upsampling_factor // 2
         )
 
-        self.dec2 = UNetBlock(hidden_channels * 2, hidden_channels, dilation)
+        self.dec2 = UNetBlock(hidden_channels * 8, hidden_channels * 4, dilation)
         self.upsample2 = nn.ConvTranspose2d(
+            hidden_channels * 4,
+            hidden_channels * 4,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
+            padding=self.upsampling_factor // 2
+        )
+
+        self.dec1 = UNetBlock(hidden_channels * 4, hidden_channels, dilation)
+        self.upsample1 = nn.ConvTranspose2d(
             hidden_channels,
             hidden_channels,
             kernel_size=2 * self.upsampling_factor,
@@ -353,14 +364,16 @@ class UNetWithDinoV2Backbone(nn.Module):
             padding=self.upsampling_factor // 2
         )
 
-        self.dec1 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
-        self.upsample1 = nn.ConvTranspose2d(
+        self.dec0 = UNetBlock(hidden_channels, hidden_channels // 2, dilation)
+        self.upsample0 = nn.ConvTranspose2d(
             hidden_channels // 2,
             hidden_channels // 2,
             kernel_size=2 * self.upsampling_factor,
             stride=self.upsampling_factor,
             padding=self.upsampling_factor // 2
         )
+
+        # self.dec0 = UNetBlock(hidden_channels // 2, hidden_channels // 2, dilation)
 
         # Final heads that are combined for depth and uncertainty estimation
         self.heads = nn.ModuleList([
@@ -451,31 +464,54 @@ class UNetWithDinoV2Backbone(nn.Module):
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
 
+        # print(f"Feature map shape: {feature_map.shape}")
+
         # Resize feature map to fit original aspect ratio
         total_scale_factor = self.upsampling_factor ** self.upsampling_amount
         patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
         out = self.dec3(out)
+        # print(f"After dec3: {out.shape}")
         if self.conv_transpose:
             out = self.upsample3(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
+        # print(f"After upsample3: {out.shape}")
+
         out = self.dec2(out)
+        # print(f"After dec2: {out.shape}")
         if self.conv_transpose:
             out = self.upsample2(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+        # print(f"After upsample2: {out.shape}")
+
 
         out = self.dec1(out)
+        # print(f"After dec1: {out.shape}")
         if self.conv_transpose:
             out = self.upsample1(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+        # print(f"After upsample1: {out.shape}")
+
+        out = self.dec0(out)
+        # print(f"After dec0: {out.shape}")
+        if self.conv_transpose:
+            out = self.upsample0(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+        # print(f"After upsample0: {out.shape}")
 
         # resize to original image size
         out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)
+
+        # final decoder block
+        # out = self.dec0(out)
+
+        # print(f"After final upsample: {out.shape}")
 
         # Run inference through all heads
         out = torch.stack([head(out) for head in self.heads], dim=1)
