@@ -17,7 +17,7 @@ import torchvision.transforms as T
 
 from config import load_config_from_yaml
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import DiUNet, SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
+from modules import DiUNet, SimpleUNet, UNetWithDinoV2LargeBackbone, UNetWithDinoV2SmallBackbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
 from post_process import PostProcessor, load_post_processor_from_config
@@ -250,7 +250,15 @@ if __name__ == "__main__":
             weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
-        model = UNetWithDinoV2Backbone(
+        model = UNetWithDinoV2SmallBackbone(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
+    elif config["model"]["type"] == "dinov2_large_backboned_unet":
+        model = UNetWithDinoV2LargeBackbone(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],
