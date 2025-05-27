@@ -1,4 +1,5 @@
 import hashlib
+import math
 import os
 import argparse
 from typing import List
@@ -21,8 +22,138 @@ from utils import ensure_dir, load_config, target_transform, create_depth_compar
 from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
-from post_process import BoxFilter, GuidedFilteringStep, PostProcessor, load_post_processor_from_config
+from post_process import BoxFilter, GaussianBlurStep, GuidedFilteringStep, NormalizedStdInterpolation, PostProcessor, SigmoidStdInterpolation, load_post_processor_from_config
 from guided_filter_pytorch.guided_filter import GuidedFilter
+
+
+def visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir: str, img_idx: int):
+    CMAP = "plasma"
+    MAX_COLS = 4  # max number of columns before wrapping
+
+    # Total number of images: ground truth depth + Raw + one per post processor
+    num_images = 2 + len(post_processors)
+
+    # Compute rows and columns needed
+    n_cols = min(num_images, MAX_COLS)
+    n_rows = math.ceil(num_images / MAX_COLS)
+
+    # Figure size scales with number of columns and rows
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows), constrained_layout=True)
+
+    # Flatten axs in case it's 2D
+    axs = np.array(axs).reshape(-1)
+
+    # Gather all data to compute consistent color scale
+    all_data = np.concatenate([
+        target_np.flatten(),
+        raw_output_np.flatten(),
+    ] + [o.flatten() for o in output_np])
+    vmin, vmax = all_data.min(), all_data.max()
+
+    # Plot Ground Truth
+    im = axs[0].imshow(target_np, cmap=CMAP, vmin=vmin, vmax=vmax)
+    axs[0].set_title("Ground Truth Depth")
+    axs[0].axis('off')
+
+    # Plot Raw Prediction
+    im = axs[1].imshow(raw_output_np, cmap=CMAP, vmin=vmin, vmax=vmax)
+    axs[1].set_title("Raw Prediction")
+    axs[1].axis('off')
+
+    # Plot post-processed predictions
+    for i, (processor, output) in enumerate(zip(post_processors, output_np)):
+        ax = axs[2 + i]
+        im = ax.imshow(output, cmap=CMAP, vmin=vmin, vmax=vmax)
+        ax.set_title(str(processor))
+        ax.axis('off')
+
+    # Turn off any unused axes (e.g., if grid is bigger than image count)
+    for j in range(2 + len(post_processors), len(axs)):
+        axs[j].axis('off')
+
+    # Shared colorbar (linked to last plotted image)
+    fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
+
+    # Save or display
+    plt.savefig(os.path.join(output_dir, f"post_processing_table_{img_idx}.png"))
+    plt.close()
+
+class DummyConstantPostProcessor:
+    def __call__(self, outputs, **kwargs):
+        return torch.zeros_like(outputs)
+
+    def __str__(self):
+        return ""
+
+def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir: str, img_idx: int):
+    uncertainty_interpolations = [
+        NormalizedStdInterpolation(),
+        SigmoidStdInterpolation(),
+    ]
+    # This is a way to visualize the effect of the std interpolation.
+    # We have the raw model output be all zeros.
+    # We have the smooth model output be all ones.
+    # We get a [0, 1] with all the interpolation values of the uncertainty interpolation.
+    ones = torch.ones_like(raw_outputs)
+    post_processors = [PostProcessor([DummyConstantPostProcessor(), u]) for u in uncertainty_interpolations]
+    processed = [
+        p(
+            ones,
+            raw_outputs=ones,
+            std=std,
+        ) for p in post_processors
+    ]
+    output_np = [outputs.cpu().squeeze().numpy() for outputs in processed]
+    for o in output_np:
+        print("uncertainty min and max", o.min(), o.max())
+    std_np = std.cpu().squeeze().numpy()
+
+    CMAP = "plasma"
+    MAX_COLS = 4  # max number of columns before wrapping
+
+    # Total number of images: ground truth depth + Raw uncertainty + one per uncertainty interp
+    num_images = 2 + len(post_processors)
+
+    # Compute rows and columns needed
+    n_cols = min(num_images, MAX_COLS)
+    n_rows = math.ceil(num_images / MAX_COLS)
+
+    # Figure size scales with number of columns and rows
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows), constrained_layout=True)
+
+    # Flatten axs in case it's 2D
+    axs = np.array(axs).reshape(-1)
+
+    # Gather all data to compute consistent color scale
+    # Plot Ground Truth
+    im = axs[0].imshow(target_np, cmap=CMAP)
+    axs[0].set_title("Ground Truth Depth")
+    axs[0].axis('off')
+    fig.colorbar(im, ax=axs[0], fraction=0.02, pad=0.04)
+
+    # Plot Raw uncertainty map
+    im = axs[1].imshow(std_np, cmap=CMAP)
+    axs[1].set_title("Raw Uncertainty")
+    axs[1].axis('off')
+    fig.colorbar(im, ax=axs[1], fraction=0.02, pad=0.04)
+
+    # Plot post-processed predictions
+    for i, (processor, output) in enumerate(zip(post_processors, output_np)):
+        ax = axs[2 + i]
+        im = ax.imshow(output, cmap="inferno", vmin=0, vmax=1)
+        ax.set_title(str(processor))
+        ax.axis('off')
+
+    # # Turn off any unused axes (e.g., if grid is bigger than image count)
+    for j in range(2 + len(post_processors), len(axs)):
+        axs[j].axis('off')
+
+    # # Shared colorbar (linked to last plotted image)
+    fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
+
+    # Save or display
+    plt.savefig(os.path.join(output_dir, f"uncertainty_vis_{img_idx}.png"))
+    plt.close()
 
 
 def visualize_post_processing(model, post_processors: List[PostProcessor], val_loader, device, output_dir):
@@ -69,34 +200,8 @@ def visualize_post_processing(model, post_processors: List[PostProcessor], val_l
                     # Normalize for visualization
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
-                    # Create visualization
-                    fig, axs = plt.subplots(1, 2 + len(post_processors), figsize=(6 + 3 * (len(post_processors)), 3), constrained_layout=True)
-
-                    CMAP = "plasma"
-                    # Flatten all data for consistent vmin/vmax for the color bars.
-                    all_data = np.concatenate([
-                        target_np.flatten(),
-                        raw_output_np.flatten(),
-                    ] + [o.flatten() for o in output_np])
-                    vmin, vmax = all_data.min(), all_data.max()
-
-                    im = axs[0].imshow(target_np, cmap=CMAP, vmin=vmin, vmax=vmax)
-                    axs[0].set_title("Ground Truth Depth")
-                    axs[0].axis('off')
-
-                    im = axs[1].imshow(raw_output_np, cmap=CMAP, vmin=vmin, vmax=vmax)
-                    axs[1].set_title("Raw Prediction")
-                    axs[1].axis('off')
-
-                    for i in range(len(post_processors)):
-                        im = axs[2 + i].imshow(output_np[i], cmap=CMAP, vmin=vmin, vmax=vmax)
-                        axs[2 + i].set_title(str(post_processors[i]))
-                        axs[2 + i].axis('off')
-                    fig.colorbar(im, ax=axs[-1], fraction=0.046, pad=0.04)
-
-                    # Save figure
-                    plt.savefig(os.path.join(output_dir, f"post_processing_comp.png"))
-                    plt.close()
+                    visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir, idx)
+                    visualize_uncertainty_interpolation(target_np, raw_outputs[i], std[i], output_dir, idx)
 
             # Free up memory
             del inputs, targets, raw_outputs, processed, std
@@ -287,6 +392,9 @@ if __name__ == "__main__":
     # Load the post processor based on the configuration.
     post_processors = [
         PostProcessor([GuidedFilteringStep()]),
+        PostProcessor([BoxFilter()]),
+        PostProcessor([GaussianBlurStep()]),
+        PostProcessor([BoxFilter()]),
         PostProcessor([BoxFilter()]),
     ]
 
