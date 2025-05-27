@@ -26,7 +26,7 @@ from post_process import BoxFilter, GaussianBlurStep, GuidedFilteringStep, Norma
 from guided_filter_pytorch.guided_filter import GuidedFilter
 
 
-def visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir: str, img_idx: int):
+def visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir: str, img_idx: int, config):
     CMAP = "plasma"
     MAX_COLS = 4  # max number of columns before wrapping
 
@@ -85,7 +85,7 @@ class DummyConstantPostProcessor:
     def __str__(self):
         return ""
 
-def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir: str, img_idx: int):
+def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir: str, img_idx: int, config):
     uncertainty_interpolations = [
         NormalizedStdInterpolation(),
         SigmoidStdInterpolation(),
@@ -111,7 +111,7 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     std_np = std.cpu().squeeze().numpy()
 
     CMAP = "plasma"
-    MAX_COLS = 4  # max number of columns before wrapping
+    MAX_COLS = 3  # max number of columns before wrapping
 
     # Total number of images: ground truth depth + Raw uncertainty + one per uncertainty interp
     num_images = 2 + len(post_processors)
@@ -121,7 +121,7 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     n_rows = math.ceil(num_images / MAX_COLS)
 
     # Figure size scales with number of columns and rows
-    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows), constrained_layout=True)
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 2 * n_rows))
 
     # Flatten axs in case it's 2D
     axs = np.array(axs).reshape(-1)
@@ -129,23 +129,26 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     # Gather all data to compute consistent color scale
     # Plot Ground Truth
     im = axs[0].imshow(target_np, cmap=CMAP)
-    axs[0].set_title("Ground Truth Depth")
+    # axs[0].set_title("Ground Truth Depth")
+    axs[0].text(0.5, -0.1, "Ground Truth Depth", transform=axs[0].transAxes, ha='center', fontsize=10)
     axs[0].axis('off')
-    fig.colorbar(im, ax=axs[0], fraction=0.02, pad=0.04)
+    fig.colorbar(im, ax=axs[0], fraction=0.02, pad=0.04, shrink=1.0)
 
     # Plot Raw uncertainty map
-    im = axs[1].imshow(std_np, cmap=CMAP)
-    axs[1].set_title("Raw Uncertainty")
+    im = axs[1].imshow(std_np, cmap="cividis")
+    # axs[1].set_title("Raw Uncertainty")
+    axs[1].text(0.5, -0.1, "Raw Uncertainty (stddev of head preds)", transform=axs[1].transAxes, ha='center', fontsize=8)
     axs[1].axis('off')
-    fig.colorbar(im, ax=axs[1], fraction=0.02, pad=0.04)
+    fig.colorbar(im, ax=axs[1], fraction=0.02, pad=0.04, shrink=1.0)
 
     # Plot post-processed predictions
     for i, (processor, output) in enumerate(zip(post_processors, output_np)):
         ax = axs[2 + i]
         im = ax.imshow(output, cmap="viridis", vmin=0, vmax=1)
-        ax.set_title(str(processor.steps[1]))
+        # ax.set_title(str(processor.steps[1]))
         ax.axis('off')
-        fig.colorbar(im, ax=axs[2 + i], fraction=0.02, pad=0.04)
+        fig.colorbar(im, ax=axs[2 + i], fraction=0.02, pad=0.04, shrink=1.0)
+        axs[2 + i].text(0.5, -0.1, str(processor.steps[1]), transform=axs[2 + i].transAxes, ha='center', fontsize=10)
 
     # # Turn off any unused axes (e.g., if grid is bigger than image count)
     for j in range(2 + len(post_processors), len(axs)):
@@ -154,11 +157,13 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     # Shared colorbar (linked to last plotted image)
 
     # Save or display
+    fig.suptitle(config["logging"]["run_name"], fontsize=16)
+    fig.tight_layout()
     plt.savefig(os.path.join(output_dir, f"uncertainty_vis_{img_idx}.png"))
     plt.close()
 
 
-def visualize_post_processing(model, post_processors: List[PostProcessor], val_loader, device, output_dir):
+def visualize_post_processing(model, post_processors: List[PostProcessor], val_loader, device, output_dir, config):
     """Visualizing post processsing on model predictions."""
     model.eval()
 
@@ -202,8 +207,8 @@ def visualize_post_processing(model, post_processors: List[PostProcessor], val_l
                     # Normalize for visualization
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
-                    visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir, idx)
-                    visualize_uncertainty_interpolation(target_np, raw_outputs[i], std[i], output_dir, idx)
+                    visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir, idx, config)
+                    visualize_uncertainty_interpolation(target_np, raw_outputs[i], std[i], output_dir, idx, config)
 
             # Free up memory
             del inputs, targets, raw_outputs, processed, std
@@ -402,4 +407,4 @@ if __name__ == "__main__":
 
     # Evaluate the model on validation set
     print("Evaluating model on validation set with post-processing...")
-    metrics = visualize_post_processing(model, post_processors, val_loader, DEVICE, eval_results_dir)
+    metrics = visualize_post_processing(model, post_processors, val_loader, DEVICE, eval_results_dir, config)
