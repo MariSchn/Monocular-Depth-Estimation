@@ -143,7 +143,7 @@ class NormalizedStdInterpolation:
         return outputs
 
     def __str__(self):
-        return f"NormalizedStdInterpolation"
+        return f"Normalized Interpolation"
 
 class SigmoidStdInterpolation:
     def __init__(self, scale=1.0, shift=-2.5):
@@ -167,7 +167,7 @@ class SigmoidStdInterpolation:
         return outputs
 
     def __str__(self):
-        return f"SigmoidStdInterpolation"
+        return f"SigmoidInterp(scale={self.scale}, shift={self.shift})"
 
 def load_post_processor_from_config(config: Config) -> PostProcessor:
     p = PostProcessor()

@@ -89,6 +89,8 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     uncertainty_interpolations = [
         NormalizedStdInterpolation(),
         SigmoidStdInterpolation(),
+        SigmoidStdInterpolation(scale=2.0),
+        SigmoidStdInterpolation(scale=3.0),
     ]
     # This is a way to visualize the effect of the std interpolation.
     # We have the raw model output be all zeros.
@@ -140,16 +142,16 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     # Plot post-processed predictions
     for i, (processor, output) in enumerate(zip(post_processors, output_np)):
         ax = axs[2 + i]
-        im = ax.imshow(output, cmap="inferno", vmin=0, vmax=1)
-        ax.set_title(str(processor))
+        im = ax.imshow(output, cmap="viridis", vmin=0, vmax=1)
+        ax.set_title(str(processor.steps[1]))
         ax.axis('off')
+        fig.colorbar(im, ax=axs[2 + i], fraction=0.02, pad=0.04)
 
     # # Turn off any unused axes (e.g., if grid is bigger than image count)
     for j in range(2 + len(post_processors), len(axs)):
         axs[j].axis('off')
 
-    # # Shared colorbar (linked to last plotted image)
-    fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
+    # Shared colorbar (linked to last plotted image)
 
     # Save or display
     plt.savefig(os.path.join(output_dir, f"uncertainty_vis_{img_idx}.png"))
