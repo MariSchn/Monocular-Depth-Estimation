@@ -13,6 +13,8 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 from transformers import AutoImageProcessor
 from config import load_config_from_yaml
+import argparse
+from train import evaluate_model
 
 # You may choose a different metric for evaluation
 BEST_METRIC = "siRMSE"
@@ -81,6 +83,8 @@ def build_dataloader(config, subset_size=2048):
     val_log_rgb, val_log_depth, _ = val_dataset[0]
 
     # Use a subset to speed up evaluation
+    if subset_size == "MAX" or subset_size > len(val_dataset):
+        subset_size = len(val_dataset)
     val_dataset = Subset(val_dataset, list(range(subset_size)))
 
     val_loader = DataLoader(
@@ -94,7 +98,14 @@ def build_dataloader(config, subset_size=2048):
     return val_log_rgb, val_log_depth, val_loader
 
 def main():
-    config_paths = glob.glob(os.path.join(CONFIG_DIR, "*.yml"))
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Evaluate models with post-processing configurations.")
+    parser.add_argument("--config", type=str, required=True, help="Folder inside postprocess_grid to use for evaluation configs")
+    args = parser.parse_args()
+
+    config_dir = os.path.join(CONFIG_DIR, args.config)
+    # print(CONFIG_DIR)
+    config_paths = glob.glob(os.path.join(config_dir, "*.yml"))
     print(f"Found {len(config_paths)} configs.")
 
     best_config_path = None
@@ -140,7 +151,7 @@ def main():
         model.load_state_dict(state_dict)
 
         # Load dataloader
-        val_log_rgb, val_log_depth, val_loader = build_dataloader(config)
+        val_log_rgb, val_log_depth, val_loader = build_dataloader(config, subset_size = "MAX")
 
         # Load postprocessor
         post_processor = load_post_processor_from_config(config)
@@ -159,13 +170,13 @@ def main():
         # Log metrics
         if config["logging"]["log"]:
             log_dict = {
-                'Eval/MAE': metrics['MAE'],
-                'Eval/RMSE': metrics['RMSE'],
-                'Eval/siRMSE': metrics['siRMSE'],
-                'Eval/REL': metrics['REL'],
-                'Eval/Delta1': metrics['Delta1'],
-                'Eval/Delta2': metrics['Delta2'],
-                'Eval/Delta3': metrics['Delta3'],
+                'Metrics/MAE': metrics['MAE'],
+                'Metrics/RMSE': metrics['RMSE'],
+                'Metrics/siRMSE': metrics['siRMSE'],
+                'Metrics/REL': metrics['REL'],
+                'Metrics/Delta1': metrics['Delta1'],
+                'Metrics/Delta2': metrics['Delta2'],
+                'Metrics/Delta3': metrics['Delta3'],
             }
 
             # Log images
