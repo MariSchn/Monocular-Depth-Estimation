@@ -71,7 +71,7 @@ class ModelConfig(BaseConfig):
     depth_before_aggregate: bool = True    # Whether to map the head outputs to metric depth before aggregating or after
 
     # ONLY NEEDED DURING POST PROCESSING.
-    wandb_artifact_fullname: str = "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5"
+    wandb_artifact_fullname: str = ""
 
 @dataclass
 class TrainConfig(BaseConfig):
