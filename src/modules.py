@@ -208,13 +208,13 @@ class UncertaintyDepthAnything(nn.Module):
                 head.train()
 
                 # Keep the pretrained head at the max_depth it was trained on
-                if i != 0:
-                    head.max_depth = max_depth
+                # if i != 0:
+                #     head.max_depth = max_depth
         else:
             self.heads = nn.ModuleList([DepthAnythingDepthEstimationHead(self.config) for _ in range(num_heads)])
             for head in self.heads:
                 head.train()
-                head.max_depth = max_depth
+                # head.max_depth = max_depth
 
         # Initialize weights
         self.initialize_weights(weight_initialization)
