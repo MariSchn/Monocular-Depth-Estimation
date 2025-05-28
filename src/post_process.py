@@ -10,6 +10,7 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yaml
+import cv2
 
 
 from config import Config
@@ -109,6 +110,27 @@ class GaussianBlurStep:
     def __str__(self):
         return f"GaussianBlur(kernel_size={self.kernel_size}, sigma={self.sigma})"
 
+class BilateralFilter:
+    def __init__(self, d=5, sigma_color=0.1, sigma_space=0.1):
+        self.d = d
+        self.sigma_color = sigma_color
+        self.sigma_space = sigma_space
+
+    def __call__(self, outputs, **kwargs):
+        postprocessed = []
+
+        for i in range(outputs.shape[0]):
+            output = outputs[i].squeeze(0).cpu().numpy()
+
+            filtered = cv2.bilateralFilter(output, d=self.d, sigmaColor=self.sigma_space, sigmaSpace=self.sigma_color)
+
+            postprocessed.append(torch.from_numpy(filtered).unsqueeze(0).to(outputs.device))
+        
+        return torch.stack(postprocessed, dim=0)
+
+    def __str__(self):
+        return f"BilateralFilter(d={self.d}, sigma_color={self.sigma_color}, sigma_space={self.sigma_space})"
+
 class BoxFilter:
     def __init__(self, kernel_size=5):
         self.kernel_size = kernel_size
@@ -179,7 +201,11 @@ def load_post_processor_from_config(config: Config) -> PostProcessor:
     if pconf.gaussian_blur:
         p.add_step(GaussianBlurStep(kernel_size=pconf.gaussian_blur.kernel_size, sigma=pconf.gaussian_blur.sigma))
     if pconf.box_filter:
-        p.add_step(BoxFilter(kernel_size=pconf.box_filter.kernel_size))
+        p.add_step(BoxFilter(kernel_size=pconf.box_filter.kernel_size))    
+    if pconf.bilateral_filter:
+        print("Bilateral filter")
+        p.add_step(BilateralFilter(d=pconf.bilateral_filter.d, sigma_color=pconf.bilateral_filter.sigma_color, sigma_space=pconf.bilateral_filter.sigma_space))
+
     # Add interpolation after filtering steps :)
     if pconf.normalized_std_interpolation:
         p.add_step(NormalizedStdInterpolation())

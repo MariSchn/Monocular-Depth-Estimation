@@ -40,6 +40,12 @@ class SigmoidStdInterpolationConfig(BaseConfig):
     shift: float = -2.5  # how to shift the sigmoid curve :)
 
 @dataclass
+class BilateralFilterStepConfig(BaseConfig):
+    d: int = 5 # Diameter of each pixel neighborhood used for filtering.
+    sigma_color: float = 0.1 # Filter sigma in the color (intensity) space. (A large value means farther colors will be mixed together)
+    sigma_space: float = 0.1 # Filter sigma in the coordinate space. (A large value means farther pixels will influence each other)
+
+@dataclass
 class PostProcessorConfig(BaseConfig):
     resize: Optional[ResizeStepConfig] = None
     guided_filter: Optional[GuidedFilterStepConfig] = None
@@ -47,6 +53,7 @@ class PostProcessorConfig(BaseConfig):
     box_filter: Optional[BoxFilterStepConfig] = None
     normalized_std_interpolation: Optional[NormalizedStdInterpolationConfig] = None
     sigmoid_std_interpolation: Optional[SigmoidStdInterpolationConfig] = None
+    bilateral_filter: Optional[BilateralFilterStepConfig] = None
 
 @dataclass
 class ModelConfig(BaseConfig):
