@@ -41,7 +41,7 @@ logging:
   val_every_step_log: true        # Whether to run on validation set at every step-level log
   log_every_k_epochs: 1           # How frequent to perform epoch-level logging (set to -1 to disable)
   log_every_k_steps: -1           # How frequent to perform step-level logging (set to -1 to disable)
-  run_name: "DiUnet"
+  run_name: "DiUnet (removed horizontal flip)" # The name of the run. This will be used to identify the run in wandb
   entity: "MonocularDepthEstimation"       # Which entity/team to log to. There should be no need to change this
   project_name: "MonocularDepthEstimation" # Which project to log to. There should be no need to change this
   upload_to_wandb: true                    # Whether to upload the model and predicted depth maps to wandb

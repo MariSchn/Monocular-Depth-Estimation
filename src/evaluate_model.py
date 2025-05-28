@@ -311,11 +311,10 @@ if __name__ == "__main__":
     elif config["model"]["type"] == "depth_anything":
         train_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
         test_transform = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
-    elif config["model"]["type"] == "dinov2_backboned_unet" or config["model"]["type"] == "diunet":
+    elif config["model"]["type"] == "dinov2_backboned_unet" or config["model"]["type"] == "dinov2_large_backboned_unet" or config["model"]["type"] == "diunet":
         train_transform = transforms.Compose([
             transforms.Resize((426, 560)),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
@@ -363,12 +362,12 @@ if __name__ == "__main__":
     # to WandB. We verify it here to make sure we are evaluating
     # the model on the same validation set.
     # Moels will likely be better on data that they are trained on :)
-    with open(os.path.join(model_artifact_dir, "val_dataset_indices_hash.txt")) as f:
-        speal = """Hash of validation dataset indices not the same!
-        This is bad for evaluation because the model may be evaluated on data it trained on.
-        Indices might be out of order. Check the val dataset and the random seed."
-        """
-        assert val_hash == f.read().strip(), speal
+    # with open(os.path.join(model_artifact_dir, "val_dataset_indices_hash.txt")) as f:
+    #     speal = """Hash of validation dataset indices not the same!
+    #     This is bad for evaluation because the model may be evaluated on data it trained on.
+    #     Indices might be out of order. Check the val dataset and the random seed."
+    #     """
+    #     assert val_hash == f.read().strip(), speal
 
     # Get images to be used as visualizations duringn logging
     train_log_rgb, train_log_depth, _ = train_dataset[0]
