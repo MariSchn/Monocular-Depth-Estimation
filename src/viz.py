@@ -21,7 +21,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from config import load_config_from_yaml
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
+from modules import DiUNet, DiUNetLarge, SimpleUNet, UNetWithDinoV2LargeBackbone, UNetWithDinoV2SmallBackbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
 from post_process import BilateralFilter, BoxFilter, GaussianBlurStep, GuidedFilteringStep, NormalizedStdInterpolation, PostProcessor, SigmoidStdInterpolation, load_post_processor_from_config
@@ -98,7 +98,7 @@ def visualize_all_post_processing_output(target_np, raw_output_np, output_np, po
 
     # Shared colorbar (linked to last plotted image)
     # fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
-
+    # fig.subplots_adjust(wspace=0.1)
     fig.tight_layout()
     # Save or display
     plt.savefig(os.path.join(output_dir, f"post_processing_table_{img_idx}.png"), bbox_inches='tight', pad_inches=0.05)
@@ -111,12 +111,11 @@ class DummyConstantPostProcessor:
     def __str__(self):
         return ""
 
-def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir: str, img_idx: int, config):
+def visualize_uncertainty_interpolation(input_np, target_np, raw_outputs, std, output_dir: str, img_idx: int, config):
     uncertainty_interpolations = [
         NormalizedStdInterpolation(),
         SigmoidStdInterpolation(),
         SigmoidStdInterpolation(scale=2.0),
-        SigmoidStdInterpolation(scale=3.0),
     ]
     # This is a way to visualize the effect of the std interpolation.
     # We have the raw model output be all zeros.
@@ -140,7 +139,7 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     MAX_COLS = 3  # max number of columns before wrapping
 
     # Total number of images: ground truth depth + Raw uncertainty + one per uncertainty interp
-    num_images = 2 + len(post_processors)
+    num_images = 3 + len(post_processors)
 
     # Compute rows and columns needed
     n_cols = min(num_images, MAX_COLS)
@@ -152,29 +151,51 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     # Flatten axs in case it's 2D
     axs = np.array(axs).reshape(-1)
 
+    im = axs[0].imshow(input_np)
+    axs[0].text(0.5, -0.1, "Raw Input", transform=axs[0].transAxes, ha='center', fontsize=10)
+    axs[0].axis('off')
+
     # Gather all data to compute consistent color scale
     # Plot Ground Truth
-    im = axs[0].imshow(target_np, cmap=CMAP)
+    im = axs[1].imshow(target_np, cmap=CMAP)
     # axs[0].set_title("Ground Truth Depth")
-    axs[0].text(0.5, -0.1, "Ground Truth Depth", transform=axs[0].transAxes, ha='center', fontsize=10)
-    axs[0].axis('off')
-    fig.colorbar(im, ax=axs[0], fraction=0.02, pad=0.04, shrink=1.0)
+    axs[1].text(0.5, -0.1, "Ground Truth Depth", transform=axs[1].transAxes, ha='center', fontsize=10)
+    axs[1].axis('off')
+    # fig.colorbar(im, ax=axs[0], fraction=0.02, pad=0.04, shrink=1.0)
+    # Create a divider for the existing axes
+    divider = make_axes_locatable(axs[1])
+    # Append a colorbar axes to the right of the image axes with the same height
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    # Create the colorbar in the new axes
+    fig.colorbar(im, cax=cax)
 
     # Plot Raw uncertainty map
-    im = axs[1].imshow(std_np, cmap="cividis")
+    im = axs[2].imshow(std_np, cmap="turbo")
     # axs[1].set_title("Raw Uncertainty")
-    axs[1].text(0.5, -0.1, "Raw Uncertainty (stddev of head preds)", transform=axs[1].transAxes, ha='center', fontsize=8)
-    axs[1].axis('off')
-    fig.colorbar(im, ax=axs[1], fraction=0.02, pad=0.04, shrink=1.0)
+    axs[2].text(0.5, -0.1, "Raw Uncertainty", transform=axs[2].transAxes, ha='center', fontsize=10)
+    axs[2].axis('off')
+    # fig.colorbar(im, ax=axs[1], fraction=0.02, pad=0.04, shrink=1.0)
+    # Create a divider for the existing axes
+    divider = make_axes_locatable(axs[2])
+    # Append a colorbar axes to the right of the image axes with the same height
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    # Create the colorbar in the new axes
+    fig.colorbar(im, cax=cax)
 
     # Plot post-processed predictions
     for i, (processor, output) in enumerate(zip(post_processors, output_np)):
-        ax = axs[2 + i]
+        ax = axs[3 + i]
         im = ax.imshow(output, cmap="viridis", vmin=0, vmax=1)
         # ax.set_title(str(processor.steps[1]))
         ax.axis('off')
-        fig.colorbar(im, ax=axs[2 + i], fraction=0.02, pad=0.04, shrink=1.0)
-        axs[2 + i].text(0.5, -0.1, str(processor.steps[1]), transform=axs[2 + i].transAxes, ha='center', fontsize=10)
+        # fig.colorbar(im, ax=axs[2 + i], fraction=0.02, pad=0.04, shrink=1.0)
+        ax.text(0.5, -0.1, str(processor.steps[1]), transform=ax.transAxes, ha='center', fontsize=10)
+        # Create a divider for the existing axes
+        divider = make_axes_locatable(ax)
+        # Append a colorbar axes to the right of the image axes with the same height
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        # Create the colorbar in the new axes
+        fig.colorbar(im, cax=cax)
 
     # # Turn off any unused axes (e.g., if grid is bigger than image count)
     for j in range(2 + len(post_processors), len(axs)):
@@ -183,9 +204,10 @@ def visualize_uncertainty_interpolation(target_np, raw_outputs, std, output_dir:
     # Shared colorbar (linked to last plotted image)
 
     # Save or display
-    fig.suptitle(config["logging"]["run_name"], fontsize=16)
+    # fig.suptitle(config["logging"]["run_name"], fontsize=16)
     fig.tight_layout()
-    plt.savefig(os.path.join(output_dir, f"uncertainty_vis_{img_idx}.png"))
+    # Save or display
+    plt.savefig(os.path.join(output_dir, f"uncertainty_vis_{img_idx}.png"), bbox_inches='tight', pad_inches=0.05)
     plt.close()
 
 
@@ -234,7 +256,7 @@ def visualize_post_processing(model, post_processors: List[PostProcessor], val_l
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
                     visualize_all_post_processing_output(target_np, raw_output_np, output_np, post_processors, output_dir, idx, config)
-                    visualize_uncertainty_interpolation(target_np, raw_outputs[i], std[i], output_dir, idx, config)
+                    visualize_uncertainty_interpolation(input_np, target_np, raw_outputs[i], std[i], output_dir, idx, config)
 
             # Free up memory
             del inputs, targets, raw_outputs, processed, std
@@ -306,7 +328,31 @@ if __name__ == "__main__":
             weight_initialization=config["model"]["weight_initialization"],
         )
     elif config["model"]["type"] == "dinov2_backboned_unet":
-        model = UNetWithDinoV2Backbone(
+        model = UNetWithDinoV2SmallBackbone(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
+    elif config["model"]["type"] == "dinov2_large_backboned_unet":
+        model = UNetWithDinoV2LargeBackbone(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
+    elif config["model"]["type"] == "diunet":
+        model = DiUNet(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
+        )
+    elif config["model"]["type"] == "diunet_large":
+        model = DiUNetLarge(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"],
