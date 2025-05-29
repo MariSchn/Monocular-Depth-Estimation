@@ -22,7 +22,7 @@ import torchvision.transforms as T
 
 from config import load_config_from_yaml
 from utils import ensure_dir, load_config, target_transform, create_depth_comparison, gradient_regularizer, gradient_loss
-from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
+from modules import DiUNet, DiUNetLarge, SimpleUNet, UNetWithDinoV2LargeBackbone, UNetWithDinoV2SmallBackbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
 
@@ -108,7 +108,7 @@ def compare_models_on_validation_set(models, val_loader, device, output_dir, con
     for model in models:
         model.eval()
 
-    model_names = [conf["logging"]["run_name"] for conf in configs]
+    model_names = [conf["logging"]["run_name"] for conf in configs] + ["Depth Anything Pre-Trained"]
 
     total_samples = 0
     target_shape = None
@@ -191,6 +191,7 @@ if __name__ == "__main__":
 
     models = []
     for conf in configs:
+        print("Loading model " + conf.logging.run_name)
         wandb_artifact_fullname = conf.model.wandb_artifact_fullname
         assert len(wandb_artifact_fullname) > 0, "Specify `config.wandb_artifact_fullname` for conf {} to tell this script what to download.".format(conf.logging.run_name)
 
@@ -199,6 +200,7 @@ if __name__ == "__main__":
         model_artifact_dir = model_artifact.download()
         print("Model artifact downloaded to", model_artifact_dir)
 
+        # V5 model has 16 heads :)
         # V5 model has 16 heads :)
         if conf["model"]["type"] == "u_net":
             model = SimpleUNet(
@@ -216,7 +218,31 @@ if __name__ == "__main__":
                 weight_initialization=conf["model"]["weight_initialization"],
             )
         elif conf["model"]["type"] == "dinov2_backboned_unet":
-            model = UNetWithDinoV2Backbone(
+            model = UNetWithDinoV2SmallBackbone(
+                num_heads=conf["model"]["num_heads"],
+                image_size=(conf["data"]["input_size"][0], conf["data"]["input_size"][1]),
+                conv_transpose=conf["model"]["conv_transpose"],
+                weight_initialization=conf["model"]["weight_initialization"],
+                depth_before_aggregate=conf["model"]["depth_before_aggregate"],
+            )
+        elif conf["model"]["type"] == "dinov2_large_backboned_unet":
+            model = UNetWithDinoV2LargeBackbone(
+                num_heads=conf["model"]["num_heads"],
+                image_size=(conf["data"]["input_size"][0], conf["data"]["input_size"][1]),
+                conv_transpose=conf["model"]["conv_transpose"],
+                weight_initialization=conf["model"]["weight_initialization"],
+                depth_before_aggregate=conf["model"]["depth_before_aggregate"],
+            )
+        elif conf["model"]["type"] == "diunet":
+            model = DiUNet(
+                num_heads=conf["model"]["num_heads"],
+                image_size=(conf["data"]["input_size"][0], conf["data"]["input_size"][1]),
+                conv_transpose=conf["model"]["conv_transpose"],
+                weight_initialization=conf["model"]["weight_initialization"],
+                depth_before_aggregate=conf["model"]["depth_before_aggregate"],
+            )
+        elif conf["model"]["type"] == "diunet_large":
+            model = DiUNetLarge(
                 num_heads=conf["model"]["num_heads"],
                 image_size=(conf["data"]["input_size"][0], conf["data"]["input_size"][1]),
                 conv_transpose=conf["model"]["conv_transpose"],
@@ -233,6 +259,18 @@ if __name__ == "__main__":
         state_dict = torch.load(os.path.join(model_artifact_dir, 'best_model.pth'))
         model.load_state_dict(state_dict)
         models.append(model)
+
+    # Load the pretrained depth anyhting model.
+    model = UncertaintyDepthAnything(
+        num_heads=1,
+        include_pretrained_head=True,
+        weight_initialization="glorot",
+    )
+    model = nn.DataParallel(model)
+    model = model.to(DEVICE)
+    print(f"Using device: {DEVICE}")
+    models.append(model)
+
 
     # ##### LOAD THE DATASET #####
     # Define transforms
