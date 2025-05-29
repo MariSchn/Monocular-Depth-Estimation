@@ -52,6 +52,36 @@ MODEL_PRESETS = {
         "num_heads": 4,
         "include_pretrained_head": False,
         "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+    },
+    "dinov2_large_backboned_unet": {
+        "type": "dinov2_backboned_unet",
+        "hidden_channels": 32,
+        "dilation": 1,
+        "conv_transpose": True,
+        "weight_initialization": "glorot",
+        "num_heads": 4,
+        "include_pretrained_head": False,
+        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+    },
+    "diunet": {
+        "type": "diunet",
+        "hidden_channels": 32,
+        "dilation": 1,
+        "conv_transpose": True,
+        "weight_initialization": "glorot",
+        "num_heads": 4,
+        "include_pretrained_head": False,
+        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+    },
+    "diunet_large": {
+        "type": "diunet_large",
+        "hidden_channels": 32,
+        "dilation": 1,
+        "conv_transpose": True,
+        "weight_initialization": "glorot",
+        "num_heads": 4,
+        "include_pretrained_head": False,
+        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
     }
 }
 
