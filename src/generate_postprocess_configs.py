@@ -39,6 +39,7 @@ POST_PROCESS_GRID = {
     },
 }
 POST_PROCESS_INTERPOLATION_GRID = {
+    "none": {},
     "normalized_std_interpolation": {},
     "sigmoid_std_interpolation": {"scale": [1.0], "shift": [-2.5]}
 }
@@ -79,17 +80,17 @@ MODEL_PRESETS = {
     #     "depth_before_aggregate": True,
     #     "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v31",
     # },
-    "depth_anything_multi_head": {
-        "type": "depth_anything",
-        "hidden_channels": 32,
-        "dilation": 1,
-        "conv_transpose": True,
-        "weight_initialization": "glorot",
-        "num_heads": 4,
-        "include_pretrained_head": False,
-        "depth_before_aggregate": True,
-        "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v32",
-    },
+    # "depth_anything_multi_head": {
+    #     "type": "depth_anything",
+    #     "hidden_channels": 32,
+    #     "dilation": 1,
+    #     "conv_transpose": True,
+    #     "weight_initialization": "glorot",
+    #     "num_heads": 4,
+    #     "include_pretrained_head": False,
+    #     "depth_before_aggregate": True,
+    #     "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v32",
+    # },
     # "dinov2": {
     #     "type": "dinov2_backboned_unet",
     #     "hidden_channels": 32,
@@ -125,36 +126,37 @@ MODEL_PRESETS = {
     # }
     #     "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
     # },
-    "dinov2_large_backboned_unet": {
-        "type": "dinov2_backboned_unet",
-        "hidden_channels": 32,
-        "dilation": 1,
-        "conv_transpose": True,
-        "weight_initialization": "glorot",
-        "num_heads": 4,
-        "include_pretrained_head": False,
-        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
-    },
+    # "dinov2_large_backboned_unet": {
+    #     "type": "dinov2_backboned_unet",
+    #     "hidden_channels": 32,
+    #     "dilation": 1,
+    #     "conv_transpose": True,
+    #     "weight_initialization": "glorot",
+    #     "num_heads": 4,
+    #     "include_pretrained_head": False,
+    #     # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+    # },
     "diunet": {
         "type": "diunet",
         "hidden_channels": 32,
         "dilation": 1,
-        "conv_transpose": True,
+        "conv_transpose": False,
         "weight_initialization": "glorot",
         "num_heads": 4,
         "include_pretrained_head": False,
-        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+        "depth_before_aggregate": True,
+        "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v38",
     },
-    "diunet_large": {
-        "type": "diunet_large",
-        "hidden_channels": 32,
-        "dilation": 1,
-        "conv_transpose": True,
-        "weight_initialization": "glorot",
-        "num_heads": 4,
-        "include_pretrained_head": False,
-        # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
-    }
+    # "diunet_large": {
+    #     "type": "diunet_large",
+    #     "hidden_channels": 32,
+    #     "dilation": 1,
+    #     "conv_transpose": True,
+    #     "weight_initialization": "glorot",
+    #     "num_heads": 4,
+    #     "include_pretrained_head": False,
+    #     # "wandb_artifact_fullname": "MonocularDepthEstimation/MonocularDepthEstimation/best_model:v19",
+    # }
 }
 
 # Base training/data/logging config
@@ -211,7 +213,7 @@ def main():
                         config["logging"]["run_name"] = f"FineTune/{model_name}/id_{config_id}_{filter_method}_{interp_method or 'none'}"
 
                         post_process = {filter_method: filter_params}
-                        if interp_method:
+                        if interp_method != "none":
                             post_process[interp_method] = interp_params
                         config["post_process"] = post_process
 
