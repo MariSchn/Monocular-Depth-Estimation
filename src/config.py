@@ -101,6 +101,12 @@ class LoggingConfig(BaseConfig):
     project_name: str = "MonocularDepthEstimation" # Which project to log to. There should be no need to change this
     upload_to_wandb: bool = True                    # Whether to upload the model and predicted depth maps to wandb
 
+@dataclass
+class ArchitectureCompareConfig(BaseConfig):
+    name_override: str = ""
+    sort_order: int = 0
+    show: bool = True
+
 
 @dataclass
 class Config(BaseConfig):
@@ -115,6 +121,7 @@ class Config(BaseConfig):
     data: DataConfig = field(default_factory=DataConfig)
     post_process: Optional[PostProcessorConfig] = None
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    architecture_compare: ArchitectureCompareConfig = field(default_factory=ArchitectureCompareConfig)
 
 
 def from_dict(cls, data):

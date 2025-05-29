@@ -47,3 +47,6 @@ logging:
   entity: "MonocularDepthEstimation"       # Which entity/team to log to. There should be no need to change this
   project_name: "MonocularDepthEstimation" # Which project to log to. There should be no need to change this
   upload_to_wandb: true                    # Whether to upload the model and predicted depth maps to wandb
+
+architecture_compare:
+  sort_order: -4

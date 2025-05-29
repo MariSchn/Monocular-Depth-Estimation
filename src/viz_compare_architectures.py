@@ -26,7 +26,7 @@ from modules import DiUNet, DiUNetLarge, SimpleUNet, UNetWithDinoV2LargeBackbone
 from data import DepthDataset
 from train import generate_test_predictions
 
-def compare_models_on_sample(raw_outputs_per_model, inputs, target, output_dir: str, img_idx: int, model_names: List[str]):
+def compare_models_on_sample(raw_outputs_per_model, inputs, target, output_dir: str, img_idx: int, model_tups):
     CMAP = "plasma"
     MAX_COLS = 4  # max number of columns before wrapping
 
@@ -41,7 +41,7 @@ def compare_models_on_sample(raw_outputs_per_model, inputs, target, output_dir: 
     n_rows = math.ceil(num_images / MAX_COLS)
 
     # Figure size scales with number of columns and rows
-    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 2.5 * n_rows))
 
     # Flatten axs in case it's 2D
     axs = np.array(axs).reshape(-1)
@@ -75,7 +75,7 @@ def compare_models_on_sample(raw_outputs_per_model, inputs, target, output_dir: 
     for i, output_np in enumerate(output_np_per_model):
         ax = axs[2 + i]
         im = ax.imshow(output_np, cmap=CMAP, vmin=vmin, vmax=vmax)
-        ax.text(0.5, -0.1, model_names[i], transform=ax.transAxes, ha='center', fontsize=10)
+        ax.text(0.5, -0.1, model_tups[i][1], transform=ax.transAxes, ha='center', fontsize=10)
         ax.axis('off')
         # Create a divider for the existing axes
         divider = make_axes_locatable(ax)
@@ -103,12 +103,11 @@ def compare_models_on_sample(raw_outputs_per_model, inputs, target, output_dir: 
 
 
 
-def compare_models_on_validation_set(models, val_loader, device, output_dir, configs):
+def compare_models_on_validation_set(model_tups, val_loader, device, output_dir):
+    models = [d[0] for d in model_tups]
     """Visualizing post processsing on model predictions."""
     for model in models:
         model.eval()
-
-    model_names = [conf["logging"]["run_name"] for conf in configs] + ["Depth Anything Pre-Trained"]
 
     total_samples = 0
     target_shape = None
@@ -130,7 +129,7 @@ def compare_models_on_validation_set(models, val_loader, device, output_dir, con
                 for i in range(min(batch_size, 1)):
                     idx = total_samples - batch_size + i
                     raw_output_on_sample = [r[i] for r, _ in raw_outputs_list]
-                    compare_models_on_sample(raw_output_on_sample, inputs[i], targets[i], output_dir, idx, model_names)
+                    compare_models_on_sample(raw_output_on_sample, inputs[i], targets[i], output_dir, idx, model_tups)
 
             # Free up memory
             for outputs in raw_outputs_list:
@@ -260,17 +259,39 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         models.append(model)
 
+    model_tups = [
+        (
+            model,
+            config.logging.run_name if config.architecture_compare.name_override == "" else config.architecture_compare.name_override,
+            config.architecture_compare.sort_order,
+            config.architecture_compare.show
+        ) for model, config in zip(models, configs)
+    ]
     # Load the pretrained depth anyhting model.
     model = UncertaintyDepthAnything(
         num_heads=1,
         include_pretrained_head=True,
         weight_initialization="glorot",
     )
+
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")
-    models.append(model)
+    model_tups.append((
+        model,
+        "DepthAnything Pretrained",
+        3,
+        True,
+    ))
 
+    model_tups = sorted(model_tups, key=lambda x: x[2])
+    print([(d[1], d[2]) for d in model_tups])
+    model_tups = [m for m in model_tups if m[3]]
+    # assert False
+
+    # Let's process the models to sort them in a certain way.
+    # The weights indicate the sort order - we will sort the models in ascending order.
+    # TODO: OK big guy - what we are going to do is add a field to the config with sort weight and title override.
 
     # ##### LOAD THE DATASET #####
     # Define transforms
@@ -367,4 +388,4 @@ if __name__ == "__main__":
 
     # Evaluate the model on validation set
     print("Evaluating model on validation set to produce comparison images")
-    compare_models_on_validation_set(models, val_loader, DEVICE, eval_results_dir, configs)
+    compare_models_on_validation_set(model_tups, val_loader, DEVICE, eval_results_dir)
