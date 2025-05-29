@@ -17,7 +17,8 @@ logging:
   upload_to_wandb: true
   val_every_step_log: true
 model:
-  conv_transpose: true
+  conv_transpose: false
+  depth_before_aggregate: true
   dilation: 1
   hidden_channels: 32
   include_pretrained_head: false
