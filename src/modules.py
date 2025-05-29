@@ -548,6 +548,238 @@ class DiUNet(nn.Module):
             out = torch.sigmoid(out) * 10
 
         return out, std
+    
+class DiUNetLarge(nn.Module):
+    def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):
+        super().__init__()
+        self.image_size = image_size
+        self.conv_transpose = conv_transpose
+
+        # Encoder blocks
+        self.enc1_output_size = hidden_channels // 2
+        self.enc2_output_size = hidden_channels * 2
+        self.enc3_output_size = hidden_channels * 8
+        self.enc4_output_size = hidden_channels * 16
+
+        self.enc1 = UNetBlock(3, self.enc1_output_size, dilation)
+        self.enc2 = UNetBlock(self.enc1_output_size, self.enc2_output_size, dilation)
+        self.enc3 = UNetBlock(self.enc2_output_size, self.enc3_output_size, dilation)
+        self.enc4 = UNetBlock(self.enc3_output_size, self.enc4_output_size, dilation)
+
+        self.upsampling_amount = 4
+        self.upsampling_factor = 2
+
+        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-large')
+        self.backbone = AutoModel.from_pretrained('facebook/dinov2-large')
+
+        self.channel_dim = self.backbone.config.hidden_size
+
+        self.backbone.eval()
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # Decoder blocks
+        self.dec3 = UNetBlock(self.channel_dim + self.enc4_output_size, hidden_channels * 8, dilation)
+        self.upsample3 = nn.ConvTranspose2d(
+            hidden_channels * 8,
+            hidden_channels * 8,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
+            padding=self.upsampling_factor // 2
+        )
+
+
+        self.dec2 = UNetBlock(2 * self.enc3_output_size, hidden_channels * 2, dilation)
+        self.upsample2 = nn.ConvTranspose2d(
+            hidden_channels * 2,
+            hidden_channels * 2,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
+            padding=self.upsampling_factor // 2
+        )
+
+        self.dec1 = UNetBlock(2 * self.enc2_output_size, hidden_channels // 2, dilation)
+        self.upsample1 = nn.ConvTranspose2d(
+            hidden_channels  // 2,
+            hidden_channels  // 2,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
+            padding=self.upsampling_factor // 2
+        )
+
+        self.dec0 = UNetBlock(2 * self.enc1_output_size, hidden_channels // 4, dilation)
+        self.upsample0 = nn.ConvTranspose2d(
+            hidden_channels // 4,
+            hidden_channels // 4,
+            kernel_size=2 * self.upsampling_factor,
+            stride=self.upsampling_factor,
+            padding=self.upsampling_factor // 2
+        )
+
+        # Final heads that are combined for depth and uncertainty estimation
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(hidden_channels // 4, hidden_channels // 4, kernel_size=3, padding=1),
+                nn.BatchNorm2d(hidden_channels // 4),
+                nn.ReLU(),
+                nn.Conv2d(hidden_channels // 4, 1, kernel_size=1)
+            ) for _ in range(num_heads)
+        ])
+
+        # Initialize weights
+        self.initialize_weights(weight_initialization)
+
+        # Copy the initial state of the heads
+        self.initial_head_params = self.get_head_params().clone().detach()
+
+        # Pooling and upsampling
+        self.pool = nn.MaxPool2d(2)
+
+        self.depth_before_aggregate = depth_before_aggregate
+
+    def initialize_weights(self, method):
+        """
+        Initialize the weights of the model, excluding the backbone.
+        """
+        if method == "default":
+            return
+        elif method == "glorot":
+            print("Using Glorot initialization")
+            modules_to_initialize = [
+                self.dec3, self.upsample3,
+                self.dec2, self.upsample2,
+                self.dec1, self.upsample1,
+                self.heads
+            ]
+            for module_group in modules_to_initialize:
+                for m in module_group.modules():
+                    if isinstance(m, nn.Conv2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.BatchNorm2d):
+                        nn.init.ones_(m.weight)
+                        nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.Linear):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+                    elif isinstance(m, nn.ConvTranspose2d):
+                        nn.init.xavier_uniform_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+        else:
+            raise ValueError(f"Unknown weight initialization method: {method}")
+
+    def get_head_params(self):
+        """
+        Returns the parameters of the heads as a flattened tensor.
+        This is useful for optimization purposes.
+        """
+        return torch.cat([
+                    torch.cat([
+                        p.view(-1) for p in head.parameters() if p.requires_grad
+                    ], dim=0) for head in self.heads
+                ], dim=0)
+
+    def head_penalty(self):
+        """
+        Calculates the penalty for the heads based on the distance from the initial parameters.
+        """
+        if len(self.heads) == 1:
+            return torch.tensor(0.0, device=self.initial_head_params.device)
+
+        head_params = self.get_head_params()
+        return F.mse_loss(head_params, self.initial_head_params.to(head_params.device))
+
+    def forward(self, x):
+        # Encoder
+        encoder_input = x
+
+        enc1_output = self.enc1(encoder_input)
+        encoder_input = self.pool(enc1_output)
+
+        enc2_output = self.enc2(encoder_input)
+        encoder_input = self.pool(enc2_output)
+
+        enc3_output = self.enc3(encoder_input)
+        encoder_input = self.pool(enc3_output)
+
+        enc4_output = self.enc4(encoder_input)
+
+        images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x]
+        inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
+
+        with torch.no_grad():
+            outputs = self.backbone(**inputs)
+
+        tokens = outputs.last_hidden_state[:, 1:, :]
+        B, N, C = tokens.shape
+        H = W = int(N ** 0.5)
+        feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
+
+        # Resize feature map to fit original aspect ratio
+        total_scale_factor = self.upsampling_factor ** self.upsampling_amount
+        patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
+        out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
+
+        # add first skip connection
+        skip1 = nn.functional.interpolate(enc4_output, size=out.shape[2:], mode='bilinear', align_corners=False)
+        out = torch.cat([out, skip1], dim=1)
+
+        out = self.dec3(out)
+        if self.conv_transpose:
+            out = self.upsample3(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+
+        # add second skip connection
+        skip2 = nn.functional.interpolate(enc3_output, size=out.shape[2:], mode='bilinear', align_corners=False)
+        out = torch.cat([out, skip2], dim=1)
+
+        out = self.dec2(out)
+        if self.conv_transpose:
+            out = self.upsample2(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+
+        # add third skip connection
+        skip3 = nn.functional.interpolate(enc2_output, size=out.shape[2:], mode='bilinear', align_corners=False)
+        out = torch.cat([out, skip3], dim=1)
+
+        out = self.dec1(out)
+        if self.conv_transpose:
+            out = self.upsample1(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+
+        # add forth skip connection
+        skip4 = nn.functional.interpolate(enc1_output, size=out.shape[2:], mode='bilinear', align_corners=False)
+        out = torch.cat([out, skip4], dim=1)
+
+        out = self.dec0(out)
+        if self.conv_transpose:
+            out = self.upsample0(out)
+        else:
+            out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
+
+        # resize to original image size
+        out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)
+
+        # Run inference through all heads
+        out = torch.stack([head(out) for head in self.heads], dim=1)
+
+        if self.depth_before_aggregate:
+            out = torch.sigmoid(out) * 10
+
+        std = out.std(dim=1)
+        out = out.mean(dim=1)
+
+        # Output non-negative depth values
+        if not self.depth_before_aggregate:
+            out = torch.sigmoid(out) * 10
+
+        return out, std
 
 class UNetWithDinoV2LargeBackbone(nn.Module):
     def __init__(self, hidden_channels=64, dilation=1, num_heads=4, image_size=(426, 560), conv_transpose=True, weight_initialization="glorot", depth_before_aggregate=False):

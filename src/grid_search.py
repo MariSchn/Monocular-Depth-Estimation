@@ -7,7 +7,7 @@ import torch.nn as nn
 from evaluate_model import evaluate_model_with_postprocess
 from utils import load_config, ensure_dir, create_depth_comparison_postprocess, create_depth_postprocess_gt_comparison
 from post_process import load_post_processor_from_config
-from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
+from modules import SimpleUNet, UNetWithDinoV2LargeBackbone, UNetWithDinoV2SmallBackbone, UncertaintyDepthAnything
 from data import DepthDataset
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
@@ -38,8 +38,15 @@ def build_model(config):
             include_pretrained_head=config["model"]["include_pretrained_head"]
         )
 
+    elif model_type == "dinov2_large_backboned_unet":
+        model = UNetWithDinoV2LargeBackbone(
+            num_heads=config["model"]["num_heads"],
+            image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
+            conv_transpose=config["model"]["conv_transpose"]
+        )
+
     elif model_type == "dinov2_backboned_unet":
-        model = UNetWithDinoV2Backbone(
+        model = UNetWithDinoV2SmallBackbone(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"]
