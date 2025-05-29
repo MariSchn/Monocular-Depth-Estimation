@@ -54,7 +54,7 @@ class PostProcessor():
         return output
 
     def __str__(self) -> str:
-        return ",".join([str(s) for s in self.steps])
+        return "\n".join([str(s) for s in self.steps])
 
 class ResizeStep:
     def __call__(self, model_output, **kwargs):
@@ -95,7 +95,7 @@ class GuidedFilteringStep:
         return filtered
 
     def __str__(self):
-        return f"GuidedFilter(r={self.radius}, epsilon={self.epsilon})"
+        return f"GuidedFilter(r={self.radius}, eps={self.epsilon})"
 
 class GaussianBlurStep:
     def __init__(self, kernel_size=5, sigma=1.0):
@@ -125,11 +125,11 @@ class BilateralFilter:
             filtered = cv2.bilateralFilter(output, d=self.d, sigmaColor=self.sigma_space, sigmaSpace=self.sigma_color)
 
             postprocessed.append(torch.from_numpy(filtered).unsqueeze(0).to(outputs.device))
-        
+
         return torch.stack(postprocessed, dim=0)
 
     def __str__(self):
-        return f"BilateralFilter(d={self.d}, sigma_color={self.sigma_color}, sigma_space={self.sigma_space})"
+        return f"BilateralFilter(d={self.d}, sigma_r={self.sigma_color}, sigma_d={self.sigma_space})"
 
 class BoxFilter:
     def __init__(self, kernel_size=5):
@@ -165,7 +165,7 @@ class NormalizedStdInterpolation:
         return outputs
 
     def __str__(self):
-        return f"Normalized Interpolation"
+        return f"Min-MaxInterp"
 
 class SigmoidStdInterpolation:
     def __init__(self, scale=1.0, shift=-2.5):
@@ -201,7 +201,7 @@ def load_post_processor_from_config(config: Config) -> PostProcessor:
     if pconf.gaussian_blur:
         p.add_step(GaussianBlurStep(kernel_size=pconf.gaussian_blur.kernel_size, sigma=pconf.gaussian_blur.sigma))
     if pconf.box_filter:
-        p.add_step(BoxFilter(kernel_size=pconf.box_filter.kernel_size))    
+        p.add_step(BoxFilter(kernel_size=pconf.box_filter.kernel_size))
     if pconf.bilateral_filter:
         print("Bilateral filter")
         p.add_step(BilateralFilter(d=pconf.bilateral_filter.d, sigma_color=pconf.bilateral_filter.sigma_color, sigma_space=pconf.bilateral_filter.sigma_space))

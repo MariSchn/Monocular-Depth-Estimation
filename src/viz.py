@@ -3,6 +3,7 @@ import math
 import os
 import argparse
 from typing import List
+import matplotlib as mpl
 import wandb
 import numpy as np
 import torch
@@ -15,6 +16,7 @@ from tqdm import tqdm
 import yaml
 from transformers import AutoImageProcessor
 import torchvision.transforms as T
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 from config import load_config_from_yaml
@@ -22,11 +24,11 @@ from utils import ensure_dir, load_config, target_transform, create_depth_compar
 from modules import SimpleUNet, UNetWithDinoV2Backbone, UncertaintyDepthAnything
 from data import DepthDataset
 from train import generate_test_predictions
-from post_process import BoxFilter, GaussianBlurStep, GuidedFilteringStep, NormalizedStdInterpolation, PostProcessor, SigmoidStdInterpolation, load_post_processor_from_config
+from post_process import BilateralFilter, BoxFilter, GaussianBlurStep, GuidedFilteringStep, NormalizedStdInterpolation, PostProcessor, SigmoidStdInterpolation, load_post_processor_from_config
 from guided_filter_pytorch.guided_filter import GuidedFilter
 
 
-def visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir: str, img_idx: int, config):
+def visualize_all_post_processing_output(target_np, raw_output_np, output_np, post_processors, output_dir: str, img_idx: int, config):
     CMAP = "plasma"
     MAX_COLS = 4  # max number of columns before wrapping
 
@@ -38,7 +40,7 @@ def visualize_all_post_processing_output(target_np, raw_output_np, output_np, ou
     n_rows = math.ceil(num_images / MAX_COLS)
 
     # Figure size scales with number of columns and rows
-    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows), constrained_layout=True)
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows))
 
     # Flatten axs in case it's 2D
     axs = np.array(axs).reshape(-1)
@@ -50,32 +52,56 @@ def visualize_all_post_processing_output(target_np, raw_output_np, output_np, ou
     ] + [o.flatten() for o in output_np])
     vmin, vmax = all_data.min(), all_data.max()
 
+    for o in output_np:
+        print("post processed model output", o.flatten().min(), o.flatten().max())
+
     # Plot Ground Truth
     im = axs[0].imshow(target_np, cmap=CMAP, vmin=vmin, vmax=vmax)
-    axs[0].set_title("Ground Truth Depth")
+    axs[0].text(0.5, -0.1, "Ground Truth Depth", transform=axs[0].transAxes, ha='center', fontsize=10)
     axs[0].axis('off')
+    # Create a divider for the existing axes
+    divider = make_axes_locatable(axs[0])
+    # Append a colorbar axes to the right of the image axes with the same height
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    # Create the colorbar in the new axes
+    fig.colorbar(im, cax=cax)
 
     # Plot Raw Prediction
     im = axs[1].imshow(raw_output_np, cmap=CMAP, vmin=vmin, vmax=vmax)
-    axs[1].set_title("Raw Prediction")
+    axs[1].text(0.5, -0.1, "Raw Prediction", transform=axs[1].transAxes, ha='center', fontsize=10)
     axs[1].axis('off')
+    # Create a divider for the existing axes
+    divider = make_axes_locatable(axs[1])
+    # Append a colorbar axes to the right of the image axes with the same height
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    # Create the colorbar in the new axes
+    fig.colorbar(im, cax=cax)
 
     # Plot post-processed predictions
     for i, (processor, output) in enumerate(zip(post_processors, output_np)):
         ax = axs[2 + i]
         im = ax.imshow(output, cmap=CMAP, vmin=vmin, vmax=vmax)
-        ax.set_title(str(processor))
+        # ax.set_title(str(processor))
+        ax.text(0.5, -0.1, str(processor), transform=ax.transAxes, ha='center', fontsize=10)
         ax.axis('off')
+        # Create a divider for the existing axes
+        divider = make_axes_locatable(ax)
+        # Append a colorbar axes to the right of the image axes with the same height
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        # Create the colorbar in the new axes
+        fig.colorbar(im, cax=cax)
+
 
     # Turn off any unused axes (e.g., if grid is bigger than image count)
     for j in range(2 + len(post_processors), len(axs)):
         axs[j].axis('off')
 
     # Shared colorbar (linked to last plotted image)
-    fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
+    # fig.colorbar(im, ax=axs[:2 + len(post_processors)], fraction=0.02, pad=0.04)
 
+    fig.tight_layout()
     # Save or display
-    plt.savefig(os.path.join(output_dir, f"post_processing_table_{img_idx}.png"))
+    plt.savefig(os.path.join(output_dir, f"post_processing_table_{img_idx}.png"), bbox_inches='tight', pad_inches=0.05)
     plt.close()
 
 class DummyConstantPostProcessor:
@@ -207,7 +233,7 @@ def visualize_post_processing(model, post_processors: List[PostProcessor], val_l
                     # Normalize for visualization
                     input_np = (input_np - input_np.min()) / (input_np.max() - input_np.min() + 1e-6)
 
-                    visualize_all_post_processing_output(target_np, raw_output_np, output_np, output_dir, idx, config)
+                    visualize_all_post_processing_output(target_np, raw_output_np, output_np, post_processors, output_dir, idx, config)
                     visualize_uncertainty_interpolation(target_np, raw_outputs[i], std[i], output_dir, idx, config)
 
             # Free up memory
@@ -220,6 +246,11 @@ def visualize_post_processing(model, post_processors: List[PostProcessor], val_l
 
 
 if __name__ == "__main__":
+    mpl.rcParams.update({
+        'axes.formatter.use_mathtext': True,
+        'font.family': 'serif',
+        'font.serif': ['cmr10'],  # LaTeX default serif font
+    })
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="./configs/default.yml", help="The config file from which to load the hyperparameters")
@@ -398,11 +429,12 @@ if __name__ == "__main__":
 
     # Load the post processor based on the configuration.
     post_processors = [
-        PostProcessor([GuidedFilteringStep()]),
-        PostProcessor([BoxFilter()]),
-        PostProcessor([GaussianBlurStep()]),
-        PostProcessor([BoxFilter()]),
-        PostProcessor([BoxFilter()]),
+        PostProcessor([GuidedFilteringStep(radius=16, epsilon=1e-3)]),
+        PostProcessor([BoxFilter(kernel_size=3)]),
+        PostProcessor([GaussianBlurStep(kernel_size=7, sigma=1.5)]),
+        PostProcessor([BilateralFilter(d=10, sigma_color=255, sigma_space=255)]),
+        PostProcessor([GuidedFilteringStep(radius=16, epsilon=1e-3), NormalizedStdInterpolation()]),
+        PostProcessor([GuidedFilteringStep(radius=16, epsilon=1e-3), SigmoidStdInterpolation()]),
     ]
 
     # Evaluate the model on validation set
