@@ -453,20 +453,14 @@ class DiUNet(nn.Module):
     def forward(self, x):
         # Encoder
         encoder_input = x
-        # print(f"Input shape: {encoder_input.shape}")
 
         enc1_output = self.enc1(encoder_input)
         encoder_input = self.pool(enc1_output)
-        # print(f"After enc1 -> pool1: {encoder_input.shape}")
 
         enc2_output = self.enc2(encoder_input)
         encoder_input = self.pool(enc2_output)
-        # print(f"After enc2 -> pool2: {encoder_input.shape}")
 
         enc3_output = self.enc3(encoder_input)
-        # print(f"After enc3: {enc3_output.shape}")
-        # print("")
-        # print(f"input x shape: {x.shape}")
 
         images = [x_i.detach().cpu().permute(1, 2, 0).numpy() for x_i in x]
         inputs = self.processor(images=images, return_tensors="pt", do_resize=False, do_rescale=True).to(x.device)
@@ -474,12 +468,11 @@ class DiUNet(nn.Module):
         with torch.no_grad():
             outputs = self.backbone(**inputs)
 
+        # Extract the feature map from the backbone
         tokens = outputs.last_hidden_state[:, 1:, :]
         B, N, C = tokens.shape
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
-
-        # print(f"Feature map shape: {feature_map.shape}")
 
         # Resize feature map to fit original aspect ratio
         total_scale_factor = self.upsampling_factor ** self.upsampling_amount
@@ -488,48 +481,36 @@ class DiUNet(nn.Module):
 
         # add first skip connection
         skip1 = nn.functional.interpolate(enc3_output, size=out.shape[2:], mode='bilinear', align_corners=False)
-        # print(f"Skip1 shape: {skip1.shape}")
         out = torch.cat([out, skip1], dim=1)
-        # print(f"After concatenating skip1: {out.shape}")
 
+        # first decoder block
         out = self.dec3(out)
-        # print(f"After dec3: {out.shape}")
         if self.conv_transpose:
             out = self.upsample3(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
-        # print(f"After upsample3: {out.shape}")
-
         # add second skip connection
         skip2 = nn.functional.interpolate(enc2_output, size=out.shape[2:], mode='bilinear', align_corners=False)
-        # print(f"Skip2 shape: {skip2.shape}")
         out = torch.cat([out, skip2], dim=1)
-        # print(f"After concatenating skip2: {out.shape}")
 
+        # second decoder block
         out = self.dec2(out)
-        # print(f"After dec2: {out.shape}")
         if self.conv_transpose:
             out = self.upsample2(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
-        # print(f"After upsample2: {out.shape}")
 
         # add third skip connection
         skip3 = nn.functional.interpolate(enc1_output, size=out.shape[2:], mode='bilinear', align_corners=False)
-        # print(f"Skip3 shape: {skip3.shape}")
         out = torch.cat([out, skip3], dim=1)
-        # print(f"After concatenating skip3: {out.shape}")
 
+        # third decoder block
         out = self.dec1(out)
-        # print(f"After dec1: {out.shape}")
         if self.conv_transpose:
             out = self.upsample1(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
-        # print(f"After upsample1: {out.shape}")
-
-        # print("")
 
         # resize to original image size
         out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)
@@ -722,6 +703,8 @@ class DiUNetLarge(nn.Module):
         total_scale_factor = self.upsampling_factor ** self.upsampling_amount
         patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
+
+        # Decoder with skip connections
 
         # add first skip connection
         skip1 = nn.functional.interpolate(enc4_output, size=out.shape[2:], mode='bilinear', align_corners=False)
@@ -925,47 +908,35 @@ class UNetWithDinoV2LargeBackbone(nn.Module):
         H = W = int(N ** 0.5)
         feature_map = tokens.permute(0, 2, 1).reshape(B, C, H, W)
 
-        # print(f"tokens shape: {tokens.shape}")
-        # print(f"Feature map shape: {feature_map.shape}")
-
         # Resize feature map to fit original aspect ratio
         total_scale_factor = self.upsampling_factor ** self.upsampling_amount
         patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
+        # Decoder
         out = self.dec3(out)
-        # print(f"After dec3: {out.shape}")
         if self.conv_transpose:
             out = self.upsample3(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
 
-        # print(f"After upsample3: {out.shape}")
-
         out = self.dec2(out)
-        # print(f"After dec2: {out.shape}")
         if self.conv_transpose:
             out = self.upsample2(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
-        # print(f"After upsample2: {out.shape}")
-
 
         out = self.dec1(out)
-        # print(f"After dec1: {out.shape}")
         if self.conv_transpose:
             out = self.upsample1(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
-        # print(f"After upsample1: {out.shape}")
 
         out = self.dec0(out)
-        # print(f"After dec0: {out.shape}")
         if self.conv_transpose:
             out = self.upsample0(out)
         else:
             out = nn.functional.interpolate(out, scale_factor=self.upsampling_factor, mode='bilinear', align_corners=False)
-        # print(f"After upsample0: {out.shape}")
 
         # resize to original image size
         out = nn.functional.interpolate(out, size=self.image_size, mode='bilinear', align_corners=False)
@@ -1123,6 +1094,7 @@ class UNetWithDinoV2SmallBackbone(nn.Module):
         patch_size = (self.image_size[0] // total_scale_factor, self.image_size[1] // total_scale_factor)
         out = nn.functional.interpolate(feature_map, size=patch_size, mode='bilinear', align_corners=False)
 
+        # Decoder
         out = self.dec3(out)
         if self.conv_transpose:
             out = self.upsample3(out)
