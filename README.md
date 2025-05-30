@@ -27,4 +27,4 @@ The script loads a config `.yml` file from the `src/configs` directory. By defau
 The configs used to train the models for our final results can be found in the `src/configs/evaluations/architecture` directory. All configs contain a fixed random seed to ensure reproducibility.
 To change the config used for training, simply change the `--config` argument in the `run.sh` script.
 
-The configs for the final post-processing results can be found in the `src/generate_postprocess_configs.py` script. To run the post-processing, the `src/evaluate_model.py.py` script can be used.
+The configs for the final post-processing results can be generated using the `src/generate_postprocess_configs.py` script. To run the post-processing, the `src/evaluate_model.py.py` script can be used or `src/grid_search.py` to run all the models descibed in the configs from a specified folder in the `src/configs/postprocess_grid`. You can set the folder by using `--config` argument.
