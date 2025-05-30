@@ -28,3 +28,5 @@ The configs used to train the models for our final results can be found in the `
 To change the config used for training, simply change the `--config` argument in the `run.sh` script.
 
 The configs for the final post-processing results can be generated using the `src/generate_postprocess_configs.py` script. To run the post-processing, the `src/evaluate_model.py.py` script can be used or `src/grid_search.py` to run all the models descibed in the configs from a specified folder in the `src/configs/postprocess_grid`. You can set the folder by using `--config` argument.
+
+**Note**: Due to limited disk quota on the cluster we used for training, for all of our work we used Weights and Biases storage to automatically save the model checkpoints and logs. We recommend to do the same, as our scripts assume a Weights and Biases run to load trained models when running the evaluation scripts.
