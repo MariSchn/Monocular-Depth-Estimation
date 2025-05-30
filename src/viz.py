@@ -311,7 +311,6 @@ if __name__ == "__main__":
     model_artifact_dir = model_artifact.download()
     print("Model artifact downloaded to", model_artifact_dir)
 
-    # V5 model has 16 heads :)
     if config["model"]["type"] == "u_net":
         model = SimpleUNet(
             hidden_channels=config["model"]["hidden_channels"],

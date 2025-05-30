@@ -3,6 +3,11 @@ import os
 import random
 import argparse
 
+"""
+This script generates multiple random YAML configuration files for a random search.
+For this it uses the defined ranges to sample hyperparameters for training a model.
+"""
+
 LEARN_RATE_OPTIONS = [1e-3, 5e-3, 1e-4]
 WEIGHT_DECAY_OPTIONS = [0, 1e-1, 1e-2, 1e-3, 1e-4]
 GRADIENT_LOSS_WEIGHT_OPTIONS = [0, 1, 2, 4, 8]

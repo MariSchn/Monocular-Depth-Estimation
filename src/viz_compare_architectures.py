@@ -289,10 +289,6 @@ if __name__ == "__main__":
     model_tups = [m for m in model_tups if m[3]]
     # assert False
 
-    # Let's process the models to sort them in a certain way.
-    # The weights indicate the sort order - we will sort the models in ascending order.
-    # TODO: OK big guy - what we are going to do is add a field to the config with sort weight and title override.
-
     # ##### LOAD THE DATASET #####
     # Define transforms
     train_transform = transforms.Compose([

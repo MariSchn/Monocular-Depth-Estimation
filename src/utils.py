@@ -253,6 +253,20 @@ def create_uncertainty_visualization(model: torch.nn.Module, train_image: torch.
     return image
 
 def create_depth_comparison_postprocess(model: torch.nn.Module, post_processor, image: torch.Tensor, gt: torch.Tensor, device: str) -> np.ndarray:
+    """
+    Generates a side-by-side visualization comparing the predicted depth map and the post-processed depth map
+    produced by a model, given an input image and ground truth depth.
+    Args:
+        model (torch.nn.Module): The depth estimation model to use for prediction.
+        post_processor (callable): A function or callable object that post-processes the model's output.
+        image (torch.Tensor): The input image tensor. Shape: (C, H, W) or (1, C, H, W).
+        gt (torch.Tensor): The ground truth depth map tensor. Used for normalization and visualization.
+        device (str): The device identifier (e.g., 'cpu' or 'cuda') to run the model on.
+    Returns:
+        np.ndarray: An RGB numpy array representing the rendered comparison figure, with predicted and
+        post-processed depth maps visualized side by side.
+    """
+
     model.eval()
 
     if image.ndim == 3:
@@ -317,6 +331,23 @@ def create_depth_comparison_postprocess(model: torch.nn.Module, post_processor, 
     return image
 
 def create_depth_postprocess_gt_comparison(model: torch.nn.Module, post_processor, image: torch.Tensor, gt: torch.Tensor, device: str) -> np.ndarray:
+    """
+    Generates a side-by-side visual comparison between a post-processed depth prediction and ground truth depth.
+    This function performs inference using the provided model on the input image, applies a post-processing function
+    to the predicted depth, resizes the output, and visualizes both the post-processed prediction and the ground truth
+    depth map using matplotlib. The resulting visualization is returned as a NumPy array suitable for further processing
+    or saving.
+    Args:
+        model (torch.nn.Module): The depth estimation model to use for prediction.
+        post_processor (callable): A function to post-process the model's raw output.
+        image (torch.Tensor): The input image tensor. Shape: (C, H, W) or (1, C, H, W).
+        gt (torch.Tensor): The ground truth depth tensor. Shape: (H, W) or (1, H, W).
+        device (str): The device to run the model on ('cpu' or 'cuda').
+    Returns:
+        np.ndarray: An RGB image (as a NumPy array) containing the side-by-side visualization of the
+                    post-processed depth prediction and the ground truth depth.
+    """
+
     model.eval()
 
     if image.ndim == 3:
