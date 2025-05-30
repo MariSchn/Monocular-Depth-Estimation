@@ -5,6 +5,20 @@
 This repository contains the code for the report "Uncertainty-aware Monocular Depth Estimation" for the Computational Intelligence Lab (Spring Semester 2025) at ETH Zurich. 
 Our work focused on incorporating uncertainty estimation into monocular depth estimation models, and utilize the uncertainty to improve the performance, by appling stronger post-processing in the regions with high uncertainty.
 
+## Setup
+
+To set up the environment, you can use the provided `environment.yml` file to create a conda environment. Simply run the following command:
+
+```bash
+conda env create -f environment.yml
+```
+
+After the environment is created, you can activate it with:
+
+```bash
+conda activate monocular_depth
+```
+
 ## Reproducability
 
 To reproduce the results from our report, you can use the `run.sh` script to start individual trainings.
