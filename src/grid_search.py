@@ -38,11 +38,13 @@ def build_model(config):
             include_pretrained_head=config["model"]["include_pretrained_head"]
         )
 
-    elif model_type == "dinov2_large_backboned_unet":
+    elif config["model"]["type"] == "dinov2_large_backboned_unet":
         model = UNetWithDinoV2LargeBackbone(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
-            conv_transpose=config["model"]["conv_transpose"]
+            conv_transpose=config["model"]["conv_transpose"],
+            weight_initialization=config["model"]["weight_initialization"],
+            depth_before_aggregate=config["model"]["depth_before_aggregate"],
         )
 
     elif model_type == "dinov2_backboned_unet":
@@ -51,7 +53,7 @@ def build_model(config):
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
             conv_transpose=config["model"]["conv_transpose"]
         )
-    elif config["model"]["type"] == "diunet":
+    elif model_type == "diunet":
         model = DiUNet(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
