@@ -13,23 +13,26 @@ logging:
   log_every_k_steps: -1
   log_images: true
   project_name: MonocularDepthEstimation
-  run_name: guided_filter_model_depth_anything_id_0
+  run_name: FineTune/diunet/id_8_box_filter_sigmoid_std_interpolation
   upload_to_wandb: true
   val_every_step_log: true
 model:
-  conv_transpose: true
+  conv_transpose: false
+  depth_before_aggregate: true
   dilation: 1
   hidden_channels: 32
-  include_pretrained_head: true
-  num_heads: 16
-  type: depth_anything
-  wandb_artifact_fullname: MonocularDepthEstimation/MonocularDepthEstimation/best_model:v5
-  weight_initialization: default
+  include_pretrained_head: false
+  num_heads: 4
+  type: diunet
+  wandb_artifact_fullname: MonocularDepthEstimation/MonocularDepthEstimation/best_model:v38
+  weight_initialization: glorot
 output_dir: ./output
 post_process:
-  guided_filter:
-    eps: 0.01
-    r: 2
+  box_filter:
+    kernel_size: 3
+  sigmoid_std_interpolation:
+    scale: 1.0
+    shift: -2.5
 seed: 0
 train:
   batch_size: 8
