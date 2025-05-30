@@ -38,7 +38,7 @@ def build_model(config):
             include_pretrained_head=config["model"]["include_pretrained_head"]
         )
 
-    elif config["model"]["type"] == "dinov2_large_backboned_unet":
+    elif model_type == "dinov2_large_backboned_unet":
         model = UNetWithDinoV2LargeBackbone(
             num_heads=config["model"]["num_heads"],
             image_size=(config["data"]["input_size"][0], config["data"]["input_size"][1]),
